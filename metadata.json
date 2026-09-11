@@ -1,0 +1,6 @@
+{
+  "name": "Community Care",
+  "description": "Prasat Community Care - ระบบแจ้งปัญหาชุมชนออนไลน์ อำเภอปราสาท จังหวัดสุรินทร์ ติดตามสถานะการแก้ไข และแดชบอร์ดบริหารจัดการสำหรับเจ้าหน้าที่",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
