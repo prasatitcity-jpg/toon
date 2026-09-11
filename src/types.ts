@@ -28,6 +28,14 @@ export interface TimelineEvent {
   photoUrl?: string;
 }
 
+export interface ContactLogEntry {
+  id: string;
+  timestamp: string;
+  officerName: string;
+  channel: 'phone' | 'line' | 'onsite' | 'other';
+  notes: string;
+}
+
 export interface Issue {
   id: string;
   ticketCode: string;
@@ -52,6 +60,7 @@ export interface Issue {
   officerNotes?: string;
   assignedDepartment?: string;
   assignedOfficer?: string;
+  contactLog?: ContactLogEntry[];
   createdAt: string;
   updatedAt: string;
   timeline: TimelineEvent[];
@@ -60,11 +69,18 @@ export interface Issue {
 export interface User {
   id: string;
   name: string;
+  username?: string;
+  password?: string;
   email: string;
   phone: string;
   role: 'citizen' | 'officer' | 'admin';
+  subDistrict?: string;
+  village?: string;
+  address?: string;
   department?: string;
   avatar: string;
+  isOnline?: boolean;
+  rememberMe?: boolean;
 }
 
 export interface CategoryMeta {
@@ -86,3 +102,32 @@ export interface StatusMeta {
   stepIndex: number;
   description: string;
 }
+
+export interface TicketNotification {
+  id: string;
+  ticketId: string;
+  ticketCode: string;
+  issueTitle: string;
+  oldStatus: IssueStatus;
+  newStatus: IssueStatus;
+  updatedAt: string;
+  officerName?: string;
+  officerNotes?: string;
+  afterImageUrl?: string;
+  subDistrict?: string;
+  village?: string;
+  isRead: boolean;
+  reporterName?: string;
+  reporterPhone?: string;
+}
+
+export type AppTab =
+  | 'home'
+  | 'report'
+  | 'track'
+  | 'my_history'
+  | 'map'
+  | 'hotlines'
+  | 'online_members'
+  | 'officer';
+

@@ -12,6 +12,9 @@ import {
   Clock,
   Sparkles,
   ArrowUpDown,
+  Image as ImageIcon,
+  Camera,
+  Bell,
 } from 'lucide-react';
 import { CategoryType, Issue, IssueStatus, User } from '../types';
 import { CATEGORIES, STATUSES } from '../data/categories';
@@ -26,6 +29,7 @@ interface CitizenTrackViewProps {
   currentUser: User;
   onSelectIssue: (issue: Issue) => void;
   onNavigateReport: () => void;
+  onTestNotification?: () => void;
 }
 
 export const CitizenTrackView: React.FC<CitizenTrackViewProps> = ({
@@ -33,6 +37,7 @@ export const CitizenTrackView: React.FC<CitizenTrackViewProps> = ({
   currentUser,
   onSelectIssue,
   onNavigateReport,
+  onTestNotification,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<CategoryType | 'all'>('all');
@@ -199,14 +204,45 @@ export const CitizenTrackView: React.FC<CitizenTrackViewProps> = ({
             </button>
           </div>
 
-          <button
-            type="button"
-            onClick={onNavigateReport}
-            className="flex items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-semibold bg-amber-50 text-amber-900 hover:bg-amber-100 rounded-xl transition-colors border border-amber-200 cursor-pointer"
-          >
-            <PlusCircle size={15} className="text-amber-700" />
-            <span>แจ้งปัญหาเพิ่ม</span>
-          </button>
+          <div className="flex items-center gap-2">
+            {onTestNotification && (
+              <button
+                type="button"
+                onClick={onTestNotification}
+                className="flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-800 rounded-xl transition-colors border border-emerald-200 cursor-pointer"
+                title="ทดสอบระบบจำลองแจ้งเตือนเมื่อสถานะเปลี่ยน"
+              >
+                <Bell size={14} className="text-emerald-700" />
+                <span>ทดสอบการแจ้งเตือน</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={onNavigateReport}
+              className="flex items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-semibold bg-amber-50 text-amber-900 hover:bg-amber-100 rounded-xl transition-colors border border-amber-200 cursor-pointer"
+            >
+              <PlusCircle size={15} className="text-amber-700" />
+              <span>แจ้งปัญหาเพิ่ม</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Real-time Push & Modal Notification Alert Bar */}
+        <div className="flex items-center justify-between p-3 bg-gradient-to-r from-teal-50/90 via-emerald-50/80 to-slate-50 rounded-xl border border-teal-200/80 text-xs text-teal-950">
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-lg bg-teal-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+              <Bell size={15} />
+            </div>
+            <div>
+              <p className="font-bold text-teal-900">
+                ระบบแจ้งเตือนความคืบหน้าอัตโนมัติ (Push Notification & Alert Modal)
+              </p>
+              <p className="text-[11px] text-teal-800/80">
+                เมื่อเจ้าหน้าที่ฝ่ายปฏิบัติการ อ.ปราสาท ปรับเปลี่ยนสถานะ Ticket (เช่น 'กำลังดำเนินการ' ➔ 'แก้ไขเสร็จสิ้น') ระบบจะส่งเสียงแจ้งเตือนและเปิดหน้าต่างสรุปผลพร้อมภาพถ่ายจริงทันที
+              </p>
+            </div>
+          </div>
         </div>
 
         {/* Filters Row: Status + Category + Sub-district */}
@@ -310,13 +346,22 @@ export const CitizenTrackView: React.FC<CitizenTrackViewProps> = ({
                 onClick={() => onSelectIssue(issue)}
                 className="bg-white rounded-2xl border border-slate-200/90 overflow-hidden shadow-xs hover:shadow-md hover:border-emerald-300 transition-all cursor-pointer flex flex-col group"
               >
-                {/* Image Thumbnail */}
+                {/* Image Thumbnail with Requirement 5 labels */}
                 <div className="relative h-44 bg-slate-100 overflow-hidden">
-                  <img
-                    src={issue.imageUrl}
-                    alt={issue.title}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                  />
+                  {issue.imageUrl ? (
+                    <img
+                      src={issue.imageUrl}
+                      alt={issue.title}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex flex-col items-center justify-center bg-slate-100 text-slate-400 p-4 text-center">
+                      <ImageIcon size={28} className="text-slate-300 mb-1" />
+                      <span className="text-xs font-semibold text-slate-500">ยังไม่มีภาพจากพื้นที่</span>
+                      <span className="text-[10px] text-slate-400">ไม่มีรูปถ่ายแนบมา</span>
+                    </div>
+                  )}
+
                   <div className="absolute top-3 left-3">
                     <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded-md bg-white/95 text-slate-800 shadow-xs backdrop-blur-xs border border-slate-200">
                       {issue.ticketCode}
@@ -325,11 +370,17 @@ export const CitizenTrackView: React.FC<CitizenTrackViewProps> = ({
                   <div className="absolute top-3 right-3">
                     <StatusBadge status={issue.status} size="sm" />
                   </div>
-                  {issue.afterImageUrl && (
-                    <div className="absolute bottom-2 right-2 bg-emerald-700 text-white text-[10px] font-bold px-2.5 py-0.5 rounded-full shadow-xs flex items-center gap-1">
-                      <CheckCircle size={11} /> มีรูปผลงานซ่อม
-                    </div>
-                  )}
+
+                  <div className="absolute bottom-2 left-2 flex items-center gap-1.5 flex-wrap">
+                    <span className="bg-slate-900/80 text-white text-[10px] px-2 py-0.5 rounded-md backdrop-blur-xs flex items-center gap-1 font-medium">
+                      <Camera size={10} className="text-amber-400" /> ภาพที่ประชาชนแจ้ง
+                    </span>
+                    {issue.afterImageUrl && (
+                      <span className="bg-emerald-700/90 text-white text-[10px] font-bold px-2 py-0.5 rounded-md backdrop-blur-xs shadow-xs flex items-center gap-1">
+                        <CheckCircle size={10} /> ภาพหลังดำเนินการ
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 {/* Content */}

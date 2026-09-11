@@ -17,6 +17,7 @@ import {
   ArrowUpDown,
   Download,
   MapPin,
+  Users,
 } from 'lucide-react';
 import { CategoryType, Issue, IssueStatus, User } from '../types';
 import { CATEGORIES, STATUSES, DEPARTMENTS } from '../data/categories';
@@ -31,6 +32,7 @@ interface OfficerDashboardProps {
   currentUser: User;
   onSelectIssue: (issue: Issue) => void;
   onQuickUpdateStatus: (issueId: string, newStatus: IssueStatus) => void;
+  onOpenOnlineMembers?: () => void;
 }
 
 export const OfficerDashboard: React.FC<OfficerDashboardProps> = ({
@@ -38,13 +40,32 @@ export const OfficerDashboard: React.FC<OfficerDashboardProps> = ({
   currentUser,
   onSelectIssue,
   onQuickUpdateStatus,
+  onOpenOnlineMembers,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<CategoryType | 'all'>('all');
   const [statusFilter, setStatusFilter] = useState<IssueStatus | 'all'>('all');
   const [subDistrictFilter, setSubDistrictFilter] = useState<string>('all');
+  const [villageFilter, setVillageFilter] = useState<string>('all');
   const [departmentFilter, setDepartmentFilter] = useState<string | 'all'>('all');
   const [sortOrder, setSortOrder] = useState<'newest' | 'oldest' | 'urgency'>('newest');
+
+  // Available villages depending on sub-district selection
+  const availableVillages = useMemo(() => {
+    if (subDistrictFilter === 'all') {
+      const all: { moo: number; name: string }[] = [];
+      PRASAT_SUB_DISTRICTS.forEach((sd) => {
+        sd.villages.forEach((v) => {
+          if (!all.some((existing) => existing.name === v.name)) {
+            all.push(v);
+          }
+        });
+      });
+      return all;
+    }
+    const found = PRASAT_SUB_DISTRICTS.find((sd) => sd.name === subDistrictFilter);
+    return found ? found.villages : [];
+  }, [subDistrictFilter]);
 
   // Counts for the KPI dashboard
   const totalCount = issues.length;
@@ -59,6 +80,7 @@ export const OfficerDashboard: React.FC<OfficerDashboardProps> = ({
         if (categoryFilter !== 'all' && item.category !== categoryFilter) return false;
         if (statusFilter !== 'all' && item.status !== statusFilter) return false;
         if (subDistrictFilter !== 'all' && !item.locationName.includes(subDistrictFilter)) return false;
+        if (villageFilter !== 'all' && !item.locationName.includes(villageFilter)) return false;
         if (departmentFilter !== 'all' && item.assignedDepartment !== departmentFilter) return false;
         if (searchQuery.trim()) {
           const q = searchQuery.toLowerCase();
@@ -84,7 +106,7 @@ export const OfficerDashboard: React.FC<OfficerDashboardProps> = ({
         }
         return 0;
       });
-  }, [issues, categoryFilter, statusFilter, subDistrictFilter, departmentFilter, searchQuery, sortOrder]);
+  }, [issues, categoryFilter, statusFilter, subDistrictFilter, villageFilter, departmentFilter, searchQuery, sortOrder]);
 
   const handleExportCSV = () => {
     const headers = ['TicketCode', 'Title', 'Category', 'Status', 'Urgency', 'Location', 'Reporter', 'CreatedAt'];
@@ -127,7 +149,19 @@ export const OfficerDashboard: React.FC<OfficerDashboardProps> = ({
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2.5 flex-wrap">
+          {onOpenOnlineMembers && (
+            <button
+              type="button"
+              onClick={onOpenOnlineMembers}
+              className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold bg-sky-50 border border-sky-200 hover:bg-sky-100 text-sky-900 rounded-xl transition-colors shadow-2xs cursor-pointer"
+            >
+              <Users size={15} className="text-sky-700" />
+              <span>ดูสมาชิกออนไลน์</span>
+              <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+            </button>
+          )}
+
           <button
             type="button"
             onClick={handleExportCSV}
@@ -239,13 +273,34 @@ export const OfficerDashboard: React.FC<OfficerDashboardProps> = ({
           <div className="lg:col-span-2">
             <select
               value={subDistrictFilter}
-              onChange={(e) => setSubDistrictFilter(e.target.value)}
+              onChange={(e) => {
+                setSubDistrictFilter(e.target.value);
+                setVillageFilter('all');
+              }}
               className="w-full text-xs sm:text-sm p-2.5 rounded-xl border border-slate-300 bg-white focus:outline-emerald-600 font-medium cursor-pointer"
             >
               <option value="all">ทุกตำบล (18 ตำบล)</option>
               {PRASAT_SUB_DISTRICTS.map((sd) => (
                 <option key={sd.id} value={sd.name}>
                   ต.{sd.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Village Filter (Requirement 4: กรองตามหมู่บ้าน) */}
+          <div className="lg:col-span-2">
+            <select
+              value={villageFilter}
+              onChange={(e) => setVillageFilter(e.target.value)}
+              className="w-full text-xs sm:text-sm p-2.5 rounded-xl border border-slate-300 bg-white focus:outline-emerald-600 font-medium cursor-pointer"
+            >
+              <option value="all">
+                {subDistrictFilter === 'all' ? 'ทุกหมู่บ้าน (241 หมู่บ้าน)' : `ทุกหมู่บ้านใน ต.${subDistrictFilter}`}
+              </option>
+              {availableVillages.map((v, idx) => (
+                <option key={`${v.name}-${idx}`} value={v.name}>
+                  ม.{v.moo} {v.name}
                 </option>
               ))}
             </select>
@@ -268,7 +323,7 @@ export const OfficerDashboard: React.FC<OfficerDashboardProps> = ({
           </div>
 
           {/* Status Filter */}
-          <div className="lg:col-span-2">
+          <div className="lg:col-span-1">
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value as any)}
@@ -277,14 +332,14 @@ export const OfficerDashboard: React.FC<OfficerDashboardProps> = ({
               <option value="all">ทุกสถานะ</option>
               {STATUSES.map((s) => (
                 <option key={s.id} value={s.id}>
-                  {s.label} ({issues.filter((i) => i.status === s.id).length})
+                  {s.label}
                 </option>
               ))}
             </select>
           </div>
 
           {/* Sort Order */}
-          <div className="lg:col-span-2">
+          <div className="lg:col-span-1">
             <select
               value={sortOrder}
               onChange={(e) => setSortOrder(e.target.value as any)}
@@ -292,13 +347,13 @@ export const OfficerDashboard: React.FC<OfficerDashboardProps> = ({
             >
               <option value="newest">แจ้งล่าสุด</option>
               <option value="oldest">แจ้งก่อน</option>
-              <option value="urgency">ความเร่งด่วน</option>
+              <option value="urgency">เร่งด่วน</option>
             </select>
           </div>
         </div>
 
         {/* Clear Filters Indicator */}
-        {(categoryFilter !== 'all' || statusFilter !== 'all' || subDistrictFilter !== 'all' || searchQuery.trim()) && (
+        {(categoryFilter !== 'all' || statusFilter !== 'all' || subDistrictFilter !== 'all' || villageFilter !== 'all' || searchQuery.trim()) && (
           <div className="flex items-center gap-2 pt-2 text-xs text-slate-500">
             <span>ผลการกรอง: พบ {filteredIssues.length} รายการ</span>
             <button
@@ -307,6 +362,7 @@ export const OfficerDashboard: React.FC<OfficerDashboardProps> = ({
                 setCategoryFilter('all');
                 setStatusFilter('all');
                 setSubDistrictFilter('all');
+                setVillageFilter('all');
                 setSearchQuery('');
               }}
               className="text-emerald-700 hover:underline font-semibold cursor-pointer"

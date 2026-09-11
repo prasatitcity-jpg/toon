@@ -13,11 +13,16 @@ import {
   Check,
   Building2,
   Home as HomeIcon,
+  Phone,
+  ExternalLink,
+  Shield,
+  Zap,
 } from 'lucide-react';
 import { CategoryType, Issue, UrgencyLevel, User } from '../types';
 import { CATEGORIES } from '../data/categories';
 import { CategoryIcon } from './CategoryIcon';
 import { generateTicketCode } from '../utils/storage';
+import { getRecommendedAgencies } from '../data/agencies';
 import {
   PRASAT_PROVINCE,
   PRASAT_DISTRICT,
@@ -501,6 +506,62 @@ export const ReportIssueView: React.FC<ReportIssueViewProps> = ({
                 </p>
               )}
             </div>
+
+            {/* User Requirement 7: ระบบแนะนำหน่วยงานอัตโนมัติ */}
+            {(() => {
+              const recommended = getRecommendedAgencies(category, urgency, subDistrict);
+              if (!recommended || recommended.length === 0) return null;
+
+              return (
+                <div className="bg-gradient-to-r from-amber-50/90 via-emerald-50/60 to-teal-50/80 p-4 rounded-2xl border border-amber-300/80 shadow-2xs">
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-6 h-6 rounded-lg bg-amber-600 text-white flex items-center justify-center text-xs font-bold">
+                        <Building2 size={14} />
+                      </div>
+                      <span className="text-xs font-bold text-slate-900">
+                        ระบบแนะนำหน่วยงานที่รับผิดชอบโดยตรง (อัตโนมัติ)
+                      </span>
+                    </div>
+                    <span className="text-[10px] font-semibold text-emerald-800 bg-emerald-100/80 px-2 py-0.5 rounded-full border border-emerald-200">
+                      ประสานงานรวดเร็ว
+                    </span>
+                  </div>
+
+                  <p className="text-[11px] text-slate-600 mb-3">
+                    เมื่อส่งเรื่อง ระบบจะส่งการแจ้งเตือนไปยังหน่วยงานเหล่านี้ตามประเภทปัญหา ({CATEGORIES.find((c) => c.id === category)?.label}) และพื้นที่ ต.{subDistrict || 'ปราสาท'}:
+                  </p>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {recommended.map((agency) => (
+                      <div
+                        key={agency.id}
+                        className="bg-white/95 p-3 rounded-xl border border-slate-200 shadow-2xs flex items-center justify-between gap-2"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-bold text-slate-900 truncate">{agency.name}</p>
+                          <p className="text-[10px] text-slate-500 line-clamp-1">{agency.responsibility}</p>
+                        </div>
+                        {agency.hasVerifiedPhone && agency.phone ? (
+                          <a
+                            href={`tel:${agency.phone.replace(/[^0-9]/g, '')}`}
+                            className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors shrink-0 shadow-2xs"
+                            title={`โทรติดต่อ ${agency.name}`}
+                          >
+                            <Phone size={12} />
+                            <span>โทร {agency.phoneDisplay || agency.phone}</span>
+                          </a>
+                        ) : (
+                          <span className="text-[10px] text-slate-400 bg-slate-100 px-2 py-1 rounded shrink-0">
+                            ประสานศูนย์ดำรงธรรม
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
 
           {/* Step 3: Cascading Location (Prasat, Surin) & Coordinates */}
@@ -751,56 +812,83 @@ export const ReportIssueView: React.FC<ReportIssueViewProps> = ({
             </div>
           </div>
 
-          {/* Step 4: Photo Upload */}
+          {/* Step 4: Photo Upload (User Requirement 5 & 9: Real photos only, no AI) */}
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <label className="text-sm font-bold text-slate-900 flex items-center gap-2">
                 <span className="w-5 h-5 rounded-full bg-teal-600 text-white text-xs flex items-center justify-center font-bold">
                   4
                 </span>
-                <span>แนบรูปภาพปัญหา *</span>
+                <span>แนบภาพปัญหาจากสถานที่จริง *</span>
               </label>
-              <span className="text-xs text-slate-400">รูปถ่ายช่วยให้เจ้าหน้าที่แก้ได้ตรงจุด</span>
+              <span className="text-xs text-amber-800 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200 font-medium">
+                📷 ภาพถ่ายจริงเท่านั้น (ห้ามสร้างด้วย AI)
+              </span>
             </div>
 
             {/* Photo preview & picker */}
             <div className="grid grid-cols-1 sm:grid-cols-12 gap-4">
               <div className="sm:col-span-6">
-                <div className="relative rounded-2xl overflow-hidden border border-slate-300 bg-slate-100 h-48 flex items-center justify-center group">
-                  <img
-                    src={isCustomImage && customImageUrl ? customImageUrl : imageUrl}
-                    alt="ตัวอย่างรูปปัญหา"
-                    className="w-full h-full object-cover"
-                  />
-                  <div className="absolute bottom-2 left-2 bg-slate-900/80 text-white px-2.5 py-1 rounded-lg text-xs font-medium backdrop-blur-xs">
-                    ภาพที่จะส่งเข้าระบบ
-                  </div>
+                <div className="relative rounded-2xl overflow-hidden border border-slate-300 bg-slate-100 h-52 flex items-center justify-center group">
+                  {imageUrl ? (
+                    <>
+                      <img
+                        src={isCustomImage && customImageUrl ? customImageUrl : imageUrl}
+                        alt="ภาพจากผู้แจ้ง"
+                        className="w-full h-full object-cover"
+                      />
+                      <div className="absolute bottom-2 left-2 bg-emerald-900/90 text-white px-3 py-1 rounded-lg text-xs font-semibold backdrop-blur-xs flex items-center gap-1.5 shadow-md border border-white/20">
+                        <Camera size={13} className="text-amber-300" />
+                        <span>ภาพจากผู้แจ้ง</span>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center p-6 text-center text-slate-400">
+                      <Camera size={36} className="text-slate-300 mb-2" />
+                      <p className="text-xs font-bold text-slate-600">ยังไม่มีภาพจากพื้นที่</p>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        สามารถอัปโหลดภาพถ่ายจริง หรือส่งเรื่องก่อนได้
+                      </p>
+                    </div>
+                  )}
                 </div>
               </div>
 
               <div className="sm:col-span-6 flex flex-col justify-between space-y-3">
-                {/* File Upload drag-and-drop / select */}
-                <div className="border-2 border-dashed border-slate-300 rounded-2xl p-4 text-center hover:border-teal-500 bg-slate-50/60 transition-colors relative">
+                {/* File Upload drag-and-drop / select supporting JPG, JPEG, PNG, WebP */}
+                <div className="border-2 border-dashed border-teal-300 rounded-2xl p-4 text-center hover:border-teal-500 bg-teal-50/30 transition-colors relative">
                   <input
                     type="file"
-                    accept="image/*"
+                    accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
                     onChange={handleFileUpload}
                     className="absolute inset-0 opacity-0 cursor-pointer w-full h-full z-10"
                   />
-                  <Upload className="mx-auto text-teal-600 mb-1" size={24} />
-                  <p className="text-xs font-semibold text-slate-800">
-                    อัปโหลดรูปภาพจากอุปกรณ์
+                  <Upload className="mx-auto text-teal-700 mb-1" size={24} />
+                  <p className="text-xs font-bold text-slate-800">
+                    อัปโหลดภาพถ่ายจริงจากกล้องหรือมือถือ
                   </p>
                   <p className="text-[11px] text-slate-500 mt-0.5">
-                    คลิกเพื่อเลือกไฟล์ หรือลากรูปมาวางที่นี่
+                    รองรับไฟล์: JPG, JPEG, PNG, WebP
                   </p>
                 </div>
 
-                {/* Preset quick picker */}
+                {/* Preset quick picker for realistic issue photography */}
                 <div>
-                  <span className="text-[11px] font-semibold text-slate-500 block mb-1.5">
-                    หรือเลือกรูปภาพตัวอย่างตามประเภท {CATEGORIES.find((c) => c.id === category)?.label}:
-                  </span>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[11px] font-semibold text-slate-600">
+                      หรือเลือกภาพตัวอย่างเหตุการณ์จริง ({CATEGORIES.find((c) => c.id === category)?.label}):
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setImageUrl('');
+                        setIsCustomImage(false);
+                      }}
+                      className="text-[10px] text-slate-500 hover:text-slate-800 underline"
+                    >
+                      เลือก "ยังไม่มีภาพ"
+                    </button>
+                  </div>
                   <div className="flex gap-2">
                     {(PRESET_PHOTOS[category] || PRESET_PHOTOS.road).map((url, i) => (
                       <button
@@ -811,13 +899,16 @@ export const ReportIssueView: React.FC<ReportIssueViewProps> = ({
                           setIsCustomImage(false);
                           setCustomImageUrl('');
                         }}
-                        className={`w-14 h-14 rounded-xl overflow-hidden border-2 transition-all ${
+                        className={`w-14 h-14 rounded-xl overflow-hidden border-2 transition-all relative group ${
                           imageUrl === url && !isCustomImage
                             ? 'border-teal-600 ring-2 ring-teal-200'
                             : 'border-slate-200 opacity-70 hover:opacity-100'
                         }`}
                       >
-                        <img src={url} alt={`preset ${i}`} className="w-full h-full object-cover" />
+                        <img src={url} alt={`ภาพจริง ${i + 1}`} className="w-full h-full object-cover" />
+                        <span className="absolute bottom-0 inset-x-0 bg-black/60 text-[8px] text-white text-center py-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                          ภาพจริง
+                        </span>
                       </button>
                     ))}
                   </div>

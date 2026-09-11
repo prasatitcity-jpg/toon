@@ -4,6 +4,47 @@ import { Issue, User } from '../types';
 const STORAGE_KEY_ISSUES = 'community_care_issues_v1';
 const STORAGE_KEY_USER = 'community_care_active_user_v1';
 const STORAGE_KEY_USERS_LIST = 'community_care_all_users_v1';
+const STORAGE_KEY_AUTH_STATUS = 'community_care_auth_status_v3';
+const STORAGE_KEY_REMEMBER_ME = 'community_care_remember_me_v1';
+
+export function getStoredIsLoggedIn(): boolean {
+  try {
+    // Clear any previous legacy keys that defaulted to true
+    localStorage.removeItem('community_care_auth_status_v1');
+    localStorage.removeItem('community_care_auth_status_v2');
+
+    const val = localStorage.getItem(STORAGE_KEY_AUTH_STATUS);
+    // MUST default to false so the Login Screen appears when entering the app
+    if (val === 'true') return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+export function saveStoredIsLoggedIn(isLoggedIn: boolean): void {
+  try {
+    localStorage.setItem(STORAGE_KEY_AUTH_STATUS, String(isLoggedIn));
+  } catch (e) {
+    console.error('Failed to save auth status', e);
+  }
+}
+
+export function getStoredRememberMe(): boolean {
+  try {
+    return localStorage.getItem(STORAGE_KEY_REMEMBER_ME) === 'true';
+  } catch {
+    return true;
+  }
+}
+
+export function saveStoredRememberMe(remember: boolean): void {
+  try {
+    localStorage.setItem(STORAGE_KEY_REMEMBER_ME, String(remember));
+  } catch (e) {
+    console.error('Failed to save remember me', e);
+  }
+}
 
 export function getStoredIssues(): Issue[] {
   try {

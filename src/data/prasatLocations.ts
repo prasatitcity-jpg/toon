@@ -425,3 +425,6 @@ export function getVillagesBySubDistrict(subDistrictName: string): Village[] {
   return found ? found.villages : [];
 }
 
+// Alias for backwards compatibility
+export const PRASAT_LOCATIONS = PRASAT_SUB_DISTRICTS;
+

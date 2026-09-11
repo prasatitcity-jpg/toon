@@ -1,21 +1,35 @@
 import React, { useState, useEffect } from 'react';
-import { Issue, IssueStatus, User } from './types';
+import { Issue, IssueStatus, User, TicketNotification, AppTab } from './types';
 import {
   getStoredIssues,
   saveStoredIssues,
   getStoredCurrentUser,
   saveStoredCurrentUser,
+  getStoredIsLoggedIn,
+  saveStoredIsLoggedIn,
   resetToDemoData,
 } from './utils/storage';
+import {
+  getStoredNotifications,
+  saveStoredNotifications,
+  playNotificationSound,
+  sendBrowserPushNotification,
+  STATUS_LABEL_MAP,
+} from './utils/notification';
 import { Navbar } from './components/Navbar';
 import { HomeView } from './components/HomeView';
 import { ReportIssueView } from './components/ReportIssueView';
 import { CitizenTrackView } from './components/CitizenTrackView';
+import { MyHistoryView } from './components/MyHistoryView';
+import { HotlinesView } from './components/HotlinesView';
+import { OnlineMembersView } from './components/OnlineMembersView';
 import { OfficerDashboard } from './components/OfficerDashboard';
 import { MapView } from './components/MapView';
 import { DashboardView } from './components/DashboardView';
 import { IssueDetailModal } from './components/IssueDetailModal';
-import { AuthModal } from './components/AuthModal';
+import { TicketStatusModal } from './components/TicketStatusModal';
+import { LoginView } from './components/LoginView';
+import { ProfileModal } from './components/ProfileModal';
 import { ToastContainer, ToastMessage } from './components/Toast';
 import { INITIAL_USERS } from './data/mockData';
 import {
@@ -28,14 +42,34 @@ import {
 } from 'lucide-react';
 
 export default function App() {
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => getStoredIsLoggedIn());
   const [issues, setIssues] = useState<Issue[]>(() => getStoredIssues());
   const [currentUser, setCurrentUser] = useState<User>(() => getStoredCurrentUser());
-  const [currentTab, setCurrentTab] = useState<
-    'home' | 'report' | 'track' | 'map' | 'dashboard' | 'officer'
-  >('home');
+  const [notifications, setNotifications] = useState<TicketNotification[]>(() =>
+    getStoredNotifications()
+  );
+  const [currentTab, setCurrentTab] = useState<AppTab>(() => {
+    const user = getStoredCurrentUser();
+    return user.role === 'officer' ? 'officer' : 'home';
+  });
   const [selectedIssue, setSelectedIssue] = useState<Issue | null>(null);
-  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [activeModalNotification, setActiveModalNotification] =
+    useState<TicketNotification | null>(null);
+  const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+
+  // Enforce role separation: citizen must not access officer views
+  useEffect(() => {
+    if (currentUser.role === 'citizen' && currentTab === 'officer') {
+      setCurrentTab('home');
+      addToast(
+        'error',
+        'สงวนสิทธิ์เฉพาะเจ้าหน้าที่',
+        'ห้ามประชาชนเข้าถึง Dashboard และข้อมูลการจัดการของเจ้าหน้าที่'
+      );
+    }
+  }, [currentUser.role, currentTab]);
 
   // Sync state to localStorage
   useEffect(() => {
@@ -46,6 +80,10 @@ export default function App() {
     saveStoredCurrentUser(currentUser);
   }, [currentUser]);
 
+  useEffect(() => {
+    saveStoredNotifications(notifications);
+  }, [notifications]);
+
   // Toast trigger helper
   const addToast = (type: 'success' | 'error' | 'info', title: string, message?: string) => {
     const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -54,6 +92,53 @@ export default function App() {
 
   const removeToast = (id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
+  };
+
+  // Notification Dispatcher
+  const dispatchStatusNotification = (
+    issue: Issue,
+    oldStatus: IssueStatus,
+    newStatus: IssueStatus,
+    officerNotes?: string,
+    afterImageUrl?: string
+  ) => {
+    const now = new Date().toISOString();
+    const newNotif: TicketNotification = {
+      id: `notif-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      ticketId: issue.id,
+      ticketCode: issue.ticketCode,
+      issueTitle: issue.title,
+      oldStatus,
+      newStatus,
+      updatedAt: now,
+      officerName: currentUser.role === 'officer' ? currentUser.name : 'เจ้าหน้าที่ศูนย์บริการร่วม อ.ปราสาท',
+      officerNotes:
+        officerNotes ||
+        `เจ้าหน้าที่ฝ่ายปฏิบัติการได้ทำการปรับปรุงสถานะเป็น "${STATUS_LABEL_MAP[newStatus]}"`,
+      afterImageUrl: afterImageUrl || issue.afterImageUrl,
+      subDistrict: issue.subDistrict,
+      village: issue.village,
+      isRead: false,
+      reporterName: issue.reporterName,
+      reporterPhone: issue.reporterPhone,
+    };
+
+    // Update notifications list
+    setNotifications((prev) => [newNotif, ...prev]);
+
+    // Play subtle chime sound
+    playNotificationSound();
+
+    // Trigger Browser Push Notification
+    sendBrowserPushNotification(
+      `อัปเดต Ticket: ${issue.ticketCode}`,
+      `สถานะเปลี่ยนเป็น "${STATUS_LABEL_MAP[newStatus]}" - ${issue.title}`,
+      issue.ticketCode
+    );
+
+    // Pop up Alert Modal
+    setActiveModalNotification(newNotif);
+    setIsStatusModalOpen(true);
   };
 
   // Handlers
@@ -67,15 +152,28 @@ export default function App() {
   };
 
   const handleUpdateIssue = (updated: Issue) => {
+    const oldIssue = issues.find((item) => item.id === updated.id);
     setIssues((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
     setSelectedIssue(updated);
     addToast('success', 'บันทึกข้อมูลเรียบร้อย', `อัปเดตสถานะและรายละเอียดของ ${updated.ticketCode} แล้ว`);
+
+    // Detect status change
+    if (oldIssue && oldIssue.status !== updated.status) {
+      dispatchStatusNotification(
+        updated,
+        oldIssue.status,
+        updated.status,
+        updated.officerNotes,
+        updated.afterImageUrl
+      );
+    }
   };
 
   const handleQuickUpdateStatus = (issueId: string, newStatus: IssueStatus) => {
     const target = issues.find((i) => i.id === issueId);
     if (!target) return;
 
+    const oldStatus = target.status;
     const now = new Date().toISOString();
     const updated: Issue = {
       ...target,
@@ -86,7 +184,7 @@ export default function App() {
         {
           id: `tl-${Date.now()}`,
           status: newStatus,
-          title: `เจ้าหน้าที่ปรับสถานะเป็น "${newStatus}"`,
+          title: `เจ้าหน้าที่ปรับสถานะเป็น "${STATUS_LABEL_MAP[newStatus]}"`,
           timestamp: now,
           actor: currentUser.name,
           actorRole: 'officer',
@@ -95,20 +193,118 @@ export default function App() {
     };
 
     setIssues((prev) => prev.map((i) => (i.id === issueId ? updated : i)));
-    addToast('info', 'อัปเดตสถานะแล้ว', `${updated.ticketCode} เปลี่ยนสถานะเรียบร้อย`);
+    addToast('info', 'อัปเดตสถานะแล้ว', `${updated.ticketCode} เปลี่ยนสถานะเป็น ${STATUS_LABEL_MAP[newStatus]}`);
+
+    if (oldStatus !== newStatus) {
+      dispatchStatusNotification(
+        updated,
+        oldStatus,
+        newStatus,
+        `เจ้าหน้าที่ได้ปรับสถานะการดำเนินงานของคำร้องเป็น "${STATUS_LABEL_MAP[newStatus]}" เรียบร้อยแล้ว`,
+        updated.afterImageUrl
+      );
+    }
+  };
+
+  // Test simulation for user/evaluator
+  const handleSimulateStatusChange = () => {
+    // Pick an issue that is in progress or pending
+    let target = issues.find((i) => i.status === 'in_progress');
+    let nextStatus: IssueStatus = 'resolved';
+
+    if (!target) {
+      target = issues.find((i) => i.status === 'pending') || issues[0];
+      nextStatus = 'in_progress';
+    }
+
+    if (!target) return;
+
+    const oldStatus = target.status;
+    const now = new Date().toISOString();
+    const sampleOfficerNote =
+      nextStatus === 'resolved'
+        ? 'ทีมช่างกองช่าง เทศบาลตำบลกังแอน ได้เข้าซ่อมแซมและแก้ไขปัญหาในพื้นที่เรียบร้อยแล้ว ประชาชนสามารถใช้งานได้ตามปกติ'
+        : 'เจ้าหน้าที่ฝ่ายปฏิบัติการได้รับเรื่องและกำลังจัดสรรทีมงานเข้าตรวจสอบพื้นที่จริง';
+
+    const sampleAfterImage =
+      nextStatus === 'resolved'
+        ? 'https://images.unsplash.com/photo-1541888946425-d0fbb186c5f8?auto=format&fit=crop&w=800&q=80'
+        : undefined;
+
+    const updated: Issue = {
+      ...target,
+      status: nextStatus,
+      officerNotes: sampleOfficerNote,
+      afterImageUrl: sampleAfterImage || target.afterImageUrl,
+      updatedAt: now,
+      timeline: [
+        ...target.timeline,
+        {
+          id: `tl-${Date.now()}`,
+          status: nextStatus,
+          title: `เจ้าหน้าที่ปรับสถานะเป็น "${STATUS_LABEL_MAP[nextStatus]}"`,
+          note: sampleOfficerNote,
+          timestamp: now,
+          actor: 'นายประสิทธิ์ สุขใจ (กองช่าง เทศบาลตำบลกังแอน)',
+          actorRole: 'officer',
+          photoUrl: sampleAfterImage,
+        },
+      ],
+    };
+
+    setIssues((prev) => prev.map((i) => (i.id === target!.id ? updated : i)));
+
+    dispatchStatusNotification(
+      updated,
+      oldStatus,
+      nextStatus,
+      sampleOfficerNote,
+      sampleAfterImage
+    );
+
+    addToast(
+      'success',
+      '🔔 ส่งการแจ้งเตือนสำเร็จ!',
+      `จำลอง Ticket ${updated.ticketCode} เปลี่ยนสถานะเป็น "${STATUS_LABEL_MAP[nextStatus]}" เรียบร้อยแล้ว`
+    );
+  };
+
+  const handleSelectTab = (tab: AppTab) => {
+    if (tab === 'officer' && currentUser.role === 'citizen') {
+      addToast(
+        'error',
+        'สงวนสิทธิ์เฉพาะเจ้าหน้าที่',
+        'ห้ามประชาชนเข้าถึง Dashboard และข้อมูลการจัดการของเจ้าหน้าที่'
+      );
+      setCurrentTab('home');
+      return;
+    }
+    setCurrentTab(tab);
   };
 
   const handleSwitchRole = (role: 'citizen' | 'officer') => {
     if (role === 'officer') {
       const officerUser = INITIAL_USERS.find((u) => u.role === 'officer') || INITIAL_USERS[1];
       setCurrentUser(officerUser);
+      saveStoredCurrentUser(officerUser);
       setCurrentTab('officer');
       addToast('info', 'สลับสู่โหมดเจ้าหน้าที่', `เข้าใช้งานในชื่อ ${officerUser.name} (${officerUser.department})`);
     } else {
       const citizenUser = INITIAL_USERS.find((u) => u.role === 'citizen') || INITIAL_USERS[0];
       setCurrentUser(citizenUser);
+      saveStoredCurrentUser(citizenUser);
+      if (currentTab === 'officer') {
+        setCurrentTab('home');
+      }
       addToast('info', 'สลับสู่โหมดประชาชน', `เข้าใช้งานในชื่อ ${citizenUser.name}`);
     }
+  };
+
+  const handleLogout = () => {
+    setIsLoggedIn(false);
+    saveStoredIsLoggedIn(false);
+    setIsProfileModalOpen(false);
+    addToast('info', 'ออกจากระบบแล้ว', 'คุณได้ออกจากระบบเรียบร้อยแล้ว สามารถเข้าสู่ระบบใหม่ได้ตลอดเวลา');
   };
 
   const handleResetData = () => {
@@ -116,8 +312,58 @@ export default function App() {
     setIssues(result.issues);
     setCurrentUser(result.user);
     setSelectedIssue(null);
+    setNotifications(getStoredNotifications());
     addToast('info', 'รีเซ็ตข้อมูลแล้ว', 'กู้คืนข้อมูลตัวอย่างปัญหาชุมชนและบัญชีทดสอบเรียบร้อย');
   };
+
+  const handleMarkAllNotificationsAsRead = () => {
+    setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+    addToast('info', 'ทำเครื่องหมายอ่านแล้ว', 'อ่านการแจ้งเตือนทั้งหมดเรียบร้อย');
+  };
+
+  const handleSelectNotification = (notif: TicketNotification) => {
+    // Mark this notification as read
+    setNotifications((prev) =>
+      prev.map((n) => (n.id === notif.id ? { ...n, isRead: true } : n))
+    );
+    setActiveModalNotification(notif);
+    setIsStatusModalOpen(true);
+  };
+
+  // If user is not logged in, show Login & Registration screen
+  if (!isLoggedIn) {
+    return (
+      <div className="min-h-screen flex flex-col bg-slate-50 text-slate-800 font-sans">
+        <ToastContainer toasts={toasts} onDismiss={removeToast} />
+        <LoginView
+          onLoginSuccess={(user, role, rememberMe) => {
+            setIsLoggedIn(true);
+            saveStoredIsLoggedIn(rememberMe !== false);
+            setCurrentUser(user);
+            saveStoredCurrentUser(user);
+            if (role === 'officer') {
+              setCurrentTab('officer');
+            } else {
+              setCurrentTab('home');
+            }
+            addToast('success', 'เข้าสู่ระบบสำเร็จ', `ยินดีต้อนรับ ${user.name}`);
+          }}
+          onRegisterSuccess={(newUser, rememberMe) => {
+            setIsLoggedIn(true);
+            saveStoredIsLoggedIn(rememberMe !== false);
+            setCurrentUser(newUser);
+            saveStoredCurrentUser(newUser);
+            setCurrentTab('home');
+            addToast(
+              'success',
+              'ลงทะเบียนสำเร็จ!',
+              `ยินดีต้อนรับสมาชิกใหม่ ${newUser.name} ต.${newUser.subDistrict || 'กังแอน'} เข้าสู่ชุมชนอำเภอปราสาท`
+            );
+          }}
+        />
+      </div>
+    );
+  }
 
   const pendingCount = issues.filter((i) => i.status === 'pending').length;
 
@@ -129,12 +375,16 @@ export default function App() {
       {/* Main Navigation Bar */}
       <Navbar
         currentTab={currentTab}
-        onSelectTab={setCurrentTab}
+        onSelectTab={handleSelectTab}
         currentUser={currentUser}
-        onOpenAuth={() => setIsAuthModalOpen(true)}
-        onSwitchRole={handleSwitchRole}
+        onOpenProfile={() => setIsProfileModalOpen(true)}
+        onLogout={handleLogout}
         onResetData={handleResetData}
         pendingCount={pendingCount}
+        notifications={notifications}
+        onSelectNotification={handleSelectNotification}
+        onMarkAllNotificationsAsRead={handleMarkAllNotificationsAsRead}
+        onSimulateStatusChange={handleSimulateStatusChange}
       />
 
       {/* Main Content Area */}
@@ -142,7 +392,7 @@ export default function App() {
         {currentTab === 'home' && (
           <HomeView
             issues={issues}
-            onNavigate={setCurrentTab}
+            onNavigate={handleSelectTab}
             onSelectIssue={(issue) => setSelectedIssue(issue)}
             onQuickSearch={() => setCurrentTab('track')}
           />
@@ -167,6 +417,16 @@ export default function App() {
             currentUser={currentUser}
             onSelectIssue={(issue) => setSelectedIssue(issue)}
             onNavigateReport={() => setCurrentTab('report')}
+            onTestNotification={handleSimulateStatusChange}
+          />
+        )}
+
+        {currentTab === 'my_history' && (
+          <MyHistoryView
+            issues={issues}
+            currentUser={currentUser}
+            onSelectIssue={(issue) => setSelectedIssue(issue)}
+            onNavigateReport={() => setCurrentTab('report')}
           />
         )}
 
@@ -180,14 +440,28 @@ export default function App() {
           />
         )}
 
+        {currentTab === 'hotlines' && (
+          <HotlinesView
+            onBackToHome={() => setCurrentTab(currentUser.role === 'officer' ? 'officer' : 'home')}
+          />
+        )}
+
+        {currentTab === 'online_members' && (
+          <OnlineMembersView
+            currentUserRole={currentUser.role}
+            onNavigateHome={() => setCurrentTab(currentUser.role === 'officer' ? 'officer' : 'home')}
+          />
+        )}
+
         {currentTab === 'dashboard' && <DashboardView issues={issues} />}
 
-        {currentTab === 'officer' && (
+        {currentTab === 'officer' && currentUser.role !== 'citizen' && (
           <OfficerDashboard
             issues={issues}
             currentUser={currentUser}
             onSelectIssue={(issue) => setSelectedIssue(issue)}
             onQuickUpdateStatus={handleQuickUpdateStatus}
+            onOpenOnlineMembers={() => setCurrentTab('online_members')}
           />
         )}
       </main>
@@ -202,19 +476,37 @@ export default function App() {
         />
       )}
 
-      {/* Auth / Account Switch Modal */}
-      <AuthModal
-        isOpen={isAuthModalOpen}
-        onClose={() => setIsAuthModalOpen(false)}
+      {/* Ticket Status Change Alert Modal (Modal แจ้งเตือนเมื่อสถานะ Ticket เปลี่ยนแปลง) */}
+      <TicketStatusModal
+        isOpen={isStatusModalOpen}
+        notification={activeModalNotification}
+        onClose={() => setIsStatusModalOpen(false)}
+        onViewFullIssue={(ticketCode) => {
+          setIsStatusModalOpen(false);
+          const target = issues.find((i) => i.ticketCode === ticketCode);
+          if (target) {
+            setSelectedIssue(target);
+          }
+        }}
+      />
+
+      {/* User Profile & Account Management Modal */}
+      <ProfileModal
+        isOpen={isProfileModalOpen}
+        onClose={() => setIsProfileModalOpen(false)}
         currentUser={currentUser}
-        onSelectUser={(user) => {
-          setCurrentUser(user);
-          addToast('success', 'เข้าสู่ระบบสำเร็จ', `ยินดีต้อนรับ ${user.name}`);
+        userIssues={issues.filter(
+          (i) =>
+            i.reporterName === currentUser.name ||
+            i.reporterPhone === currentUser.phone ||
+            (i.reporterEmail && i.reporterEmail === currentUser.email)
+        )}
+        onUpdateUser={(updated) => {
+          setCurrentUser(updated);
+          saveStoredCurrentUser(updated);
+          addToast('success', 'บันทึกข้อมูลส่วนตัวสำเร็จ', 'ข้อมูลของคุณได้รับการอัปเดตเรียบร้อย');
         }}
-        onRegisterUser={(newUser) => {
-          setCurrentUser(newUser);
-          addToast('success', 'ลงทะเบียนสำเร็จ', `สร้างบัญชีสำหรับ ${newUser.name} เรียบร้อย`);
-        }}
+        onLogout={handleLogout}
       />
 
       {/* Global Footer - Prasat Community Care */}

@@ -284,3 +284,9 @@ export const SurinCommunityBadge: React.FC<{ variant?: 'light' | 'dark' }> = ({
     </div>
   );
 };
+
+// Backwards-compatible aliases
+export const PrasatKhomArch = PrasatIcon;
+export const SurinElephantMotif = ElephantMascot;
+export const SilkPatternWatermark = SurinSilkRibbon;
+

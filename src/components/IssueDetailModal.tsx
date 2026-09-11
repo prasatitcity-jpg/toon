@@ -19,11 +19,12 @@ import {
   Check,
   AlertTriangle,
 } from 'lucide-react';
-import { Issue, IssueStatus, User } from '../types';
+import { Issue, IssueStatus, User, ContactLogEntry } from '../types';
 import { CATEGORIES, STATUSES, DEPARTMENTS } from '../data/categories';
 import { CategoryIcon } from './CategoryIcon';
 import { StatusBadge } from './StatusBadge';
 import { formatThaiDate } from '../utils/storage';
+import { MessageSquare, PhoneCall, MessageCircle, Users, CheckCircle2 } from 'lucide-react';
 
 interface IssueDetailModalProps {
   issue: Issue | null;
@@ -54,12 +55,32 @@ export const IssueDetailModal: React.FC<IssueDetailModalProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [copied, setCopied] = useState(false);
 
+  // Requirement 6: Officer citizen contact log state
+  const [contactChannel, setContactChannel] = useState<'phone' | 'line' | 'onsite' | 'other'>('phone');
+  const [contactNotes, setContactNotes] = useState('');
+
   // Preset sample after-repair photos for fast testing
   const SAMPLE_AFTER_PHOTOS = [
     'https://images.unsplash.com/photo-1542314831-068cd1dbfeeb?w=800&auto=format&fit=crop&q=80',
     'https://images.unsplash.com/photo-1519501025264-65ba15a82390?w=800&auto=format&fit=crop&q=80',
     'https://images.unsplash.com/photo-1584467735815-f778f274e296?w=800&auto=format&fit=crop&q=80',
   ];
+
+  const handleOfficerFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    if (!validTypes.includes(file.type.toLowerCase())) {
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (loadEvt) => {
+      if (loadEvt.target?.result) {
+        setAfterImageInput(loadEvt.target.result as string);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
 
   const handleCopyTicket = () => {
     navigator.clipboard?.writeText(issue.ticketCode);
@@ -93,6 +114,18 @@ export const IssueDetailModal: React.FC<IssueDetailModalProps> = ({
       });
     }
 
+    // Save contact log entry if officer provided notes
+    const newContactLog = [...(issue.contactLog || [])];
+    if (contactNotes.trim()) {
+      newContactLog.push({
+        id: `contact-${Date.now()}`,
+        timestamp: now,
+        officerName: currentUser.name,
+        channel: contactChannel,
+        notes: contactNotes.trim(),
+      });
+    }
+
     const updated: Issue = {
       ...issue,
       status: selectedStatus,
@@ -100,6 +133,7 @@ export const IssueDetailModal: React.FC<IssueDetailModalProps> = ({
       assignedOfficer: assignedOfficerName,
       afterImageUrl: afterImageInput || issue.afterImageUrl,
       officerNotes: officerNoteInput.trim() || issue.officerNotes,
+      contactLog: newContactLog,
       updatedAt: now,
       timeline: newTimeline,
     };
@@ -108,6 +142,7 @@ export const IssueDetailModal: React.FC<IssueDetailModalProps> = ({
       onUpdateIssue(updated);
       setIsSaving(false);
       setOfficerNoteInput('');
+      setContactNotes('');
     }, 400);
   };
 
@@ -215,47 +250,63 @@ export const IssueDetailModal: React.FC<IssueDetailModalProps> = ({
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             {/* Left Col: Photos */}
             <div className="lg:col-span-5 space-y-4">
-              {/* Before Photo */}
+              {/* Requirement 5: ภาพที่ประชาชนแจ้ง */}
               <div className="border border-slate-200 rounded-2xl overflow-hidden bg-slate-100">
                 <div className="px-3 py-2 bg-slate-800 text-white text-xs font-semibold flex items-center justify-between">
                   <span className="flex items-center gap-1.5">
-                    <Camera size={14} /> ภาพขณะแจ้งปัญหา
+                    <Camera size={14} className="text-amber-400" />
+                    <span>ภาพที่ประชาชนแจ้ง</span>
                   </span>
-                  <span className="text-[10px] text-slate-400">รูปต้นฉบับ</span>
+                  <span className="text-[10px] bg-slate-700 text-slate-300 px-2 py-0.5 rounded">
+                    ภาพถ่ายจริงจากพื้นที่
+                  </span>
                 </div>
-                <img
-                  src={issue.imageUrl}
-                  alt={issue.title}
-                  className="w-full h-52 sm:h-60 object-cover hover:scale-102 transition-transform duration-300"
-                />
+                {issue.imageUrl ? (
+                  <img
+                    src={issue.imageUrl}
+                    alt={issue.title}
+                    className="w-full h-52 sm:h-60 object-cover hover:scale-102 transition-transform duration-300"
+                  />
+                ) : (
+                  <div className="h-52 sm:h-60 flex flex-col items-center justify-center p-6 text-center text-slate-400 bg-slate-50">
+                    <ImageIcon size={36} className="text-slate-300 mb-2" />
+                    <p className="text-xs font-bold text-slate-600">ยังไม่มีภาพจากพื้นที่</p>
+                    <p className="text-[10px] text-slate-400 mt-0.5">
+                      ผู้แจ้งไม่ได้แนบภาพถ่ายมาในขณะสร้างคำร้อง
+                    </p>
+                  </div>
+                )}
               </div>
 
-              {/* After Photo (if resolved or officer mode) */}
-              {issue.afterImageUrl ? (
-                <div className="border border-emerald-200 rounded-2xl overflow-hidden bg-emerald-50/50">
-                  <div className="px-3 py-2 bg-emerald-700 text-white text-xs font-semibold flex items-center justify-between">
-                    <span className="flex items-center gap-1.5">
-                      <CheckCircle size={14} /> ภาพหลังแก้ไขเสร็จสิ้น
-                    </span>
-                    <span className="text-[10px] bg-emerald-800 px-1.5 py-0.5 rounded text-white">
-                      ผลงานซ่อม
-                    </span>
-                  </div>
+              {/* Requirement 5: ภาพหลังดำเนินการ */}
+              <div className="border border-emerald-200 rounded-2xl overflow-hidden bg-emerald-50/40">
+                <div className="px-3 py-2 bg-emerald-800 text-white text-xs font-semibold flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <CheckCircle size={14} className="text-emerald-300" />
+                    <span>ภาพหลังดำเนินการ</span>
+                  </span>
+                  <span className="text-[10px] bg-emerald-700 px-1.5 py-0.5 rounded text-white">
+                    ผลงานแก้ไข
+                  </span>
+                </div>
+                {issue.afterImageUrl ? (
                   <img
                     src={issue.afterImageUrl}
-                    alt="ภาพหลังแก้ไข"
+                    alt="ภาพหลังดำเนินการ"
                     className="w-full h-52 sm:h-60 object-cover"
                   />
-                </div>
-              ) : isOfficer ? (
-                <div className="border-2 border-dashed border-slate-300 rounded-2xl p-4 text-center bg-slate-50/60">
-                  <ImageIcon className="mx-auto text-slate-400 mb-1.5" size={28} />
-                  <p className="text-xs font-medium text-slate-700">ยังไม่มีภาพหลังการแก้ไข</p>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
-                    เจ้าหน้าที่สามารถแนบรูปภาพผลงานด้านล่างนี้ได้
-                  </p>
-                </div>
-              ) : null}
+                ) : (
+                  <div className="h-44 sm:h-48 flex flex-col items-center justify-center p-6 text-center text-slate-400 bg-white">
+                    <ImageIcon size={32} className="text-slate-300 mb-2" />
+                    <p className="text-xs font-bold text-slate-600">ยังไม่มีภาพจากพื้นที่</p>
+                    <p className="text-[10px] text-slate-400 mt-0.5">
+                      {isOfficer
+                        ? 'เจ้าหน้าที่สามารถแนบรูปถ่ายจริงหลังซ่อมเสร็จในแผงจัดการด้านล่าง'
+                        : 'อยู่ระหว่างดำเนินการโดยหน่วยงานที่เกี่ยวข้อง'}
+                    </p>
+                  </div>
+                )}
+              </div>
 
               {/* Location Pin Card */}
               <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs space-y-1.5">
@@ -364,6 +415,67 @@ export const IssueDetailModal: React.FC<IssueDetailModalProps> = ({
                 </div>
               </div>
 
+              {/* User Requirement 6: บันทึกประวัติการติดต่อประชาชน */}
+              <div className="bg-slate-50/80 p-3.5 rounded-2xl border border-slate-200">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <MessageSquare size={15} className="text-teal-700" />
+                    <h4 className="text-xs font-bold text-slate-800">
+                      บันทึกประวัติการติดต่อประชาชน ({issue.contactLog?.length || 0} รายการ)
+                    </h4>
+                  </div>
+                  <span className="text-[10px] text-slate-500 font-medium">
+                    โทร / LINE / ลงพื้นที่
+                  </span>
+                </div>
+
+                {issue.contactLog && issue.contactLog.length > 0 ? (
+                  <div className="space-y-2">
+                    {issue.contactLog.map((log) => {
+                      const channelBadge =
+                        log.channel === 'phone'
+                          ? { label: 'โทรศัพท์', icon: PhoneCall, color: 'bg-emerald-100 text-emerald-800 border-emerald-300' }
+                          : log.channel === 'line'
+                          ? { label: 'LINE Official', icon: MessageCircle, color: 'bg-green-100 text-green-800 border-green-300' }
+                          : log.channel === 'onsite'
+                          ? { label: 'ลงพื้นที่พบประชาชน', icon: Users, color: 'bg-amber-100 text-amber-900 border-amber-300' }
+                          : { label: 'อื่น ๆ', icon: MessageSquare, color: 'bg-slate-100 text-slate-700 border-slate-300' };
+
+                      const ChannelIcon = channelBadge.icon;
+
+                      return (
+                        <div
+                          key={log.id}
+                          className="bg-white p-2.5 rounded-xl border border-slate-200 text-xs shadow-2xs space-y-1"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-1.5">
+                              <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md border ${channelBadge.color}`}>
+                                <ChannelIcon size={11} />
+                                <span>{channelBadge.label}</span>
+                              </span>
+                              <span className="font-semibold text-slate-800 text-[11px]">
+                                โดย: {log.officerName}
+                              </span>
+                            </div>
+                            <span className="text-[10px] text-slate-400">
+                              {formatThaiDate(log.timestamp)}
+                            </span>
+                          </div>
+                          <p className="text-slate-700 text-xs pl-1 whitespace-pre-line leading-relaxed">
+                            {log.notes}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="p-3 text-center bg-white rounded-xl border border-dashed border-slate-200 text-[11px] text-slate-400">
+                    ยังไม่มีการบันทึกประวัติการติดต่อประชาชนในคำร้องนี้
+                  </div>
+                )}
+              </div>
+
               {/* Officer Action Panel (Only if Officer/Admin) */}
               {isOfficer && (
                 <div className="p-4 rounded-2xl bg-gradient-to-br from-sky-50 to-teal-50 border border-sky-200 space-y-4">
@@ -436,23 +548,46 @@ export const IssueDetailModal: React.FC<IssueDetailModalProps> = ({
                     </div>
                   </div>
 
-                  {/* After photo URL / Presets */}
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      รูปภาพหลังการแก้ไข (After Repair Image URL):
-                    </label>
+                  {/* After photo URL / File Upload / Presets */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-xs font-semibold text-slate-700">
+                        ภาพหลังดำเนินการ (รองรับ JPG, JPEG, PNG, WebP):
+                      </label>
+                      <label className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[11px] font-bold rounded-lg border border-emerald-200 cursor-pointer transition-colors shadow-2xs">
+                        <Upload size={12} className="text-emerald-700" />
+                        <span>อัปโหลดรูปถ่ายจริง</span>
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/jpg,image/png,image/webp"
+                          onChange={handleOfficerFileUpload}
+                          className="hidden"
+                        />
+                      </label>
+                    </div>
+
                     <div className="flex gap-2">
                       <input
                         type="url"
                         value={afterImageInput}
                         onChange={(e) => setAfterImageInput(e.target.value)}
-                        placeholder="วางลิงก์รูปถ่ายผลงาน หรือเลือกจากตัวอย่าง"
+                        placeholder="วางลิงก์รูปถ่ายผลงาน หรือกดปุ่ม 'อัปโหลดรูปถ่ายจริง' จากกล้อง/เครื่อง"
                         className="flex-1 text-xs p-2 rounded-xl border border-slate-300 bg-white focus:outline-teal-500"
                       />
+                      {afterImageInput && (
+                        <button
+                          type="button"
+                          onClick={() => setAfterImageInput('')}
+                          className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs"
+                        >
+                          ลบรูป
+                        </button>
+                      )}
                     </div>
+
                     {/* Quick presets */}
-                    <div className="flex items-center gap-2 mt-1.5">
-                      <span className="text-[10px] text-slate-500">ภาพตัวอย่าง:</span>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-[10px] text-slate-500">ภาพตัวอย่างจริง:</span>
                       {SAMPLE_AFTER_PHOTOS.map((url, i) => (
                         <button
                           key={i}
@@ -477,6 +612,67 @@ export const IssueDetailModal: React.FC<IssueDetailModalProps> = ({
                       onChange={(e) => setOfficerNoteInput(e.target.value)}
                       placeholder="เช่น ได้ส่งทีมช่างเข้าซ่อมแซมแล้วเสร็จ, อยู่ระหว่างรออะไหล่ หรือประชาสัมพันธ์ให้ประชาชนทราบ..."
                       className="w-full text-xs p-2.5 rounded-xl border border-slate-300 bg-white focus:outline-teal-500"
+                    />
+                  </div>
+
+                  {/* Requirement 6: บันทึกการติดต่อประชาชน */}
+                  <div className="p-3 bg-white rounded-xl border border-sky-200 space-y-2.5 shadow-2xs">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                        <MessageSquare size={13} className="text-sky-700" />
+                        <span>บันทึกการติดต่อประชาชน (เพิ่มประวัติใหม่)</span>
+                      </label>
+                      <span className="text-[10px] text-slate-400">ระบุช่องทางและผลการสื่อสาร</span>
+                    </div>
+
+                    {/* Channel buttons */}
+                    <div className="grid grid-cols-3 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setContactChannel('phone')}
+                        className={`py-1.5 px-2 rounded-lg text-xs font-semibold border flex items-center justify-center gap-1.5 transition-all ${
+                          contactChannel === 'phone'
+                            ? 'bg-emerald-600 text-white border-emerald-700'
+                            : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        <PhoneCall size={12} />
+                        <span>โทรศัพท์</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setContactChannel('line')}
+                        className={`py-1.5 px-2 rounded-lg text-xs font-semibold border flex items-center justify-center gap-1.5 transition-all ${
+                          contactChannel === 'line'
+                            ? 'bg-green-600 text-white border-green-700'
+                            : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        <MessageCircle size={12} />
+                        <span>LINE</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setContactChannel('onsite')}
+                        className={`py-1.5 px-2 rounded-lg text-xs font-semibold border flex items-center justify-center gap-1.5 transition-all ${
+                          contactChannel === 'onsite'
+                            ? 'bg-amber-600 text-white border-amber-700'
+                            : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        <Users size={12} />
+                        <span>ลงพื้นที่</span>
+                      </button>
+                    </div>
+
+                    <textarea
+                      rows={2}
+                      value={contactNotes}
+                      onChange={(e) => setContactNotes(e.target.value)}
+                      placeholder="บันทึกข้อความ เช่น ได้โทรแจ้งประชาชนว่าช่างจะเข้าไปดูหน้างานช่วงบ่าย หรือ นัดหมายตรวจจุด..."
+                      className="w-full text-xs p-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-teal-500"
                     />
                   </div>
 

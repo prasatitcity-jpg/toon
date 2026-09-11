@@ -17,7 +17,7 @@ import {
   Building2,
   Layers,
 } from 'lucide-react';
-import { CategoryType, Issue, IssueStatus } from '../types';
+import { CategoryType, Issue, IssueStatus, AppTab } from '../types';
 import { CATEGORIES } from '../data/categories';
 import { CategoryIcon } from './CategoryIcon';
 import { StatusBadge } from './StatusBadge';
@@ -32,7 +32,7 @@ import {
 
 interface HomeViewProps {
   issues: Issue[];
-  onNavigate: (tab: 'home' | 'report' | 'track' | 'map' | 'dashboard' | 'officer') => void;
+  onNavigate: (tab: AppTab) => void;
   onSelectIssue: (issue: Issue) => void;
   onQuickSearch: (query: string) => void;
 }
