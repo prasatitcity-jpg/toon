@@ -5,6 +5,8 @@ import {
   saveStoredIssues,
   getStoredCurrentUser,
   saveStoredCurrentUser,
+  getStoredUsers,
+  saveStoredUsers,
   getStoredIsLoggedIn,
   saveStoredIsLoggedIn,
   resetToDemoData,
@@ -30,8 +32,20 @@ import { IssueDetailModal } from './components/IssueDetailModal';
 import { TicketStatusModal } from './components/TicketStatusModal';
 import { LoginView } from './components/LoginView';
 import { ProfileModal } from './components/ProfileModal';
+import { SqlExportModal } from './components/SqlExportModal';
 import { ToastContainer, ToastMessage } from './components/Toast';
 import { INITIAL_USERS } from './data/mockData';
+import {
+  subscribeToIssues,
+  subscribeToUsers,
+  subscribeToNotifications,
+  saveIssueToFirestore,
+  updateIssueInFirestore,
+  saveUserToFirestore,
+  saveNotificationToFirestore,
+  markAllNotificationsReadInFirestore,
+  resetDatabaseToDefaults,
+} from './services/firestoreService';
 import {
   PhoneCall,
   Mail,
@@ -39,12 +53,15 @@ import {
   Heart,
   RotateCcw,
   Sparkles,
+  Database,
 } from 'lucide-react';
 
 export default function App() {
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => getStoredIsLoggedIn());
   const [issues, setIssues] = useState<Issue[]>(() => getStoredIssues());
   const [currentUser, setCurrentUser] = useState<User>(() => getStoredCurrentUser());
+  const [allUsers, setAllUsers] = useState<User[]>(() => getStoredUsers());
+  const [isDbConnected, setIsDbConnected] = useState<boolean>(true);
   const [notifications, setNotifications] = useState<TicketNotification[]>(() =>
     getStoredNotifications()
   );
@@ -57,7 +74,58 @@ export default function App() {
   const [activeModalNotification, setActiveModalNotification] =
     useState<TicketNotification | null>(null);
   const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
+  const [isSqlModalOpen, setIsSqlModalOpen] = useState(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+
+  // Real-time synchronization with Cloud Firestore
+  useEffect(() => {
+    let isMounted = true;
+
+    const unsubIssues = subscribeToIssues(
+      (firestoreIssues) => {
+        if (isMounted && firestoreIssues && firestoreIssues.length > 0) {
+          setIssues(firestoreIssues);
+          saveStoredIssues(firestoreIssues);
+          setIsDbConnected(true);
+        }
+      },
+      (err) => {
+        console.warn('Firestore issues fallback mode:', err);
+        if (isMounted) setIsDbConnected(false);
+      }
+    );
+
+    const unsubUsers = subscribeToUsers(
+      (firestoreUsers) => {
+        if (isMounted && firestoreUsers && firestoreUsers.length > 0) {
+          setAllUsers(firestoreUsers);
+          saveStoredUsers(firestoreUsers);
+        }
+      },
+      (err) => {
+        console.warn('Firestore users fallback mode:', err);
+      }
+    );
+
+    const unsubNotifs = subscribeToNotifications(
+      (firestoreNotifs) => {
+        if (isMounted && firestoreNotifs) {
+          setNotifications(firestoreNotifs);
+          saveStoredNotifications(firestoreNotifs);
+        }
+      },
+      (err) => {
+        console.warn('Firestore notifications fallback mode:', err);
+      }
+    );
+
+    return () => {
+      isMounted = false;
+      unsubIssues();
+      unsubUsers();
+      unsubNotifs();
+    };
+  }, []);
 
   // Enforce role separation: citizen must not access officer views
   useEffect(() => {
@@ -126,6 +194,11 @@ export default function App() {
     // Update notifications list
     setNotifications((prev) => [newNotif, ...prev]);
 
+    // Sync notification to Firestore
+    saveNotificationToFirestore(newNotif).catch((e) => {
+      console.error('Failed to save notification to Firestore:', e);
+    });
+
     // Play subtle chime sound
     playNotificationSound();
 
@@ -142,20 +215,25 @@ export default function App() {
   };
 
   // Handlers
-  const handleAddNewIssue = (newIssue: Issue) => {
+  const handleAddNewIssue = async (newIssue: Issue) => {
     setIssues((prev) => [newIssue, ...prev]);
     addToast(
       'success',
       'แจ้งปัญหาสำเร็จ!',
-      `รหัส Ticket ของคุณคือ ${newIssue.ticketCode} สามารถติดตามความคืบหน้าได้ตลอดเวลา`
+      `รหัส Ticket ของคุณคือ ${newIssue.ticketCode} (บันทึกข้อมูลลงฐานข้อมูล Cloud Firestore แล้ว)`
     );
+    try {
+      await saveIssueToFirestore(newIssue);
+    } catch (e) {
+      console.error('Failed to save new issue to Firestore:', e);
+    }
   };
 
-  const handleUpdateIssue = (updated: Issue) => {
+  const handleUpdateIssue = async (updated: Issue) => {
     const oldIssue = issues.find((item) => item.id === updated.id);
     setIssues((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
     setSelectedIssue(updated);
-    addToast('success', 'บันทึกข้อมูลเรียบร้อย', `อัปเดตสถานะและรายละเอียดของ ${updated.ticketCode} แล้ว`);
+    addToast('success', 'บันทึกข้อมูลเรียบร้อย', `อัปเดตสถานะของ ${updated.ticketCode} ในฐานข้อมูลแล้ว`);
 
     // Detect status change
     if (oldIssue && oldIssue.status !== updated.status) {
@@ -167,9 +245,15 @@ export default function App() {
         updated.afterImageUrl
       );
     }
+
+    try {
+      await saveIssueToFirestore(updated);
+    } catch (e) {
+      console.error('Failed to update issue in Firestore:', e);
+    }
   };
 
-  const handleQuickUpdateStatus = (issueId: string, newStatus: IssueStatus) => {
+  const handleQuickUpdateStatus = async (issueId: string, newStatus: IssueStatus) => {
     const target = issues.find((i) => i.id === issueId);
     if (!target) return;
 
@@ -203,6 +287,15 @@ export default function App() {
         `เจ้าหน้าที่ได้ปรับสถานะการดำเนินงานของคำร้องเป็น "${STATUS_LABEL_MAP[newStatus]}" เรียบร้อยแล้ว`,
         updated.afterImageUrl
       );
+    }
+
+    try {
+      await updateIssueInFirestore(issueId, {
+        status: newStatus,
+        timeline: updated.timeline,
+      });
+    } catch (e) {
+      console.error('Failed to quick-update issue in Firestore:', e);
     }
   };
 
@@ -307,18 +400,26 @@ export default function App() {
     addToast('info', 'ออกจากระบบแล้ว', 'คุณได้ออกจากระบบเรียบร้อยแล้ว สามารถเข้าสู่ระบบใหม่ได้ตลอดเวลา');
   };
 
-  const handleResetData = () => {
+  const handleResetData = async () => {
     const result = resetToDemoData();
     setIssues(result.issues);
     setCurrentUser(result.user);
     setSelectedIssue(null);
     setNotifications(getStoredNotifications());
     addToast('info', 'รีเซ็ตข้อมูลแล้ว', 'กู้คืนข้อมูลตัวอย่างปัญหาชุมชนและบัญชีทดสอบเรียบร้อย');
+    try {
+      await resetDatabaseToDefaults();
+    } catch (e) {
+      console.error('Failed to reset Firestore:', e);
+    }
   };
 
   const handleMarkAllNotificationsAsRead = () => {
     setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
     addToast('info', 'ทำเครื่องหมายอ่านแล้ว', 'อ่านการแจ้งเตือนทั้งหมดเรียบร้อย');
+    markAllNotificationsReadInFirestore(notifications).catch((e) => {
+      console.error('Failed to mark all read in Firestore:', e);
+    });
   };
 
   const handleSelectNotification = (notif: TicketNotification) => {
@@ -336,6 +437,8 @@ export default function App() {
       <div className="min-h-screen flex flex-col bg-slate-50 text-slate-800 font-sans">
         <ToastContainer toasts={toasts} onDismiss={removeToast} />
         <LoginView
+          users={allUsers}
+          isDbConnected={isDbConnected}
           onLoginSuccess={(user, role, rememberMe) => {
             setIsLoggedIn(true);
             saveStoredIsLoggedIn(rememberMe !== false);
@@ -348,7 +451,7 @@ export default function App() {
             }
             addToast('success', 'เข้าสู่ระบบสำเร็จ', `ยินดีต้อนรับ ${user.name}`);
           }}
-          onRegisterSuccess={(newUser, rememberMe) => {
+          onRegisterSuccess={async (newUser, rememberMe) => {
             setIsLoggedIn(true);
             saveStoredIsLoggedIn(rememberMe !== false);
             setCurrentUser(newUser);
@@ -357,8 +460,13 @@ export default function App() {
             addToast(
               'success',
               'ลงทะเบียนสำเร็จ!',
-              `ยินดีต้อนรับสมาชิกใหม่ ${newUser.name} ต.${newUser.subDistrict || 'กังแอน'} เข้าสู่ชุมชนอำเภอปราสาท`
+              `ยินดีต้อนรับสมาชิกใหม่ ${newUser.name} ต.${newUser.subDistrict || 'กังแอน'} เข้าสู่ชุมชนอำเภอปราสาท (บันทึกลงฐานข้อมูล Cloud Firestore แล้ว)`
             );
+            try {
+              await saveUserToFirestore(newUser);
+            } catch (e) {
+              console.error('Failed to save registered user to Firestore:', e);
+            }
           }}
         />
       </div>
@@ -385,6 +493,8 @@ export default function App() {
         onSelectNotification={handleSelectNotification}
         onMarkAllNotificationsAsRead={handleMarkAllNotificationsAsRead}
         onSimulateStatusChange={handleSimulateStatusChange}
+        isDbConnected={isDbConnected}
+        onOpenSqlModal={() => setIsSqlModalOpen(true)}
       />
 
       {/* Main Content Area */}
@@ -501,17 +611,73 @@ export default function App() {
             i.reporterPhone === currentUser.phone ||
             (i.reporterEmail && i.reporterEmail === currentUser.email)
         )}
-        onUpdateUser={(updated) => {
+        onUpdateUser={async (updated) => {
           setCurrentUser(updated);
           saveStoredCurrentUser(updated);
           addToast('success', 'บันทึกข้อมูลส่วนตัวสำเร็จ', 'ข้อมูลของคุณได้รับการอัปเดตเรียบร้อย');
+          try {
+            await saveUserToFirestore(updated);
+          } catch (e) {
+            console.error('Failed to update user profile in Firestore:', e);
+          }
         }}
         onLogout={handleLogout}
+      />
+
+      {/* SQL Export Modal for Supabase / PostgreSQL */}
+      <SqlExportModal
+        isOpen={isSqlModalOpen}
+        onClose={() => setIsSqlModalOpen(false)}
       />
 
       {/* Global Footer - Prasat Community Care */}
       <footer className="bg-white border-t border-emerald-900/10 mt-auto text-xs text-slate-500">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10">
+          {/* Cloud Database Connection Status Banner */}
+          <div className="mb-6 p-3 rounded-2xl bg-slate-50 border border-slate-200/80 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <div
+                className={`w-8 h-8 rounded-xl flex items-center justify-center ${
+                  isDbConnected ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                }`}
+              >
+                <Database size={16} />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-slate-800 text-xs">
+                    {isDbConnected
+                      ? 'ฐานข้อมูล Cloud Firestore ออนไลน์ (Real-time Database Active)'
+                      : 'กำลังเชื่อมต่อฐานข้อมูล Cloud Firestore...'}
+                  </span>
+                  <span
+                    className={`inline-block w-2 h-2 rounded-full ${
+                      isDbConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'
+                    }`}
+                  ></span>
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  ซิงค์ข้อมูลคำร้อง ปัญหาชุมชน บัญชีผู้ใช้ และการแจ้งเตือนแบบเรียลไทม์ • พร้อมส่งออกเป็น SQL สำหรับ Supabase
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                id="btn-footer-open-sql"
+                type="button"
+                onClick={() => setIsSqlModalOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs transition-all shadow-xs active:scale-95 cursor-pointer"
+                title="คลิกเพื่อดูและดาวน์โหลดไฟล์ SQL สำหรับใส่ใน Supabase"
+              >
+                <Database size={13} />
+                <span>ดาวน์โหลด SQL (Supabase)</span>
+              </button>
+              <div className="text-[11px] text-slate-400 font-mono bg-white px-2.5 py-1 rounded-lg border border-slate-200">
+                Project ID: applet-10e68098-ba1f-4204-b593
+              </div>
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
             <div className="space-y-2">
               <div className="flex items-center gap-2">

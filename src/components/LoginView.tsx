@@ -16,6 +16,7 @@ import {
   ArrowRight,
   HelpCircle,
   Check,
+  Database,
 } from 'lucide-react';
 import { User as UserType } from '../types';
 import { INITIAL_USERS } from '../data/mockData';
@@ -25,15 +26,21 @@ import { PrasatKhomArch, SurinElephantMotif, SilkPatternWatermark } from './Suri
 interface LoginViewProps {
   onLoginSuccess: (user: UserType, role: 'citizen' | 'officer', rememberMe: boolean) => void;
   onRegisterSuccess: (newUser: UserType, rememberMe: boolean) => void;
+  users?: UserType[];
+  isDbConnected?: boolean;
 }
 
 export const LoginView: React.FC<LoginViewProps> = ({
   onLoginSuccess,
   onRegisterSuccess,
+  users = [],
+  isDbConnected = true,
 }) => {
   const [activeRoleTab, setActiveRoleTab] = useState<'citizen' | 'officer'>('citizen');
   const [isRegisterMode, setIsRegisterMode] = useState(false);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
+
+  const allAvailableUsers = users.length > 0 ? users : INITIAL_USERS;
 
   // Login Form States
   const [identifier, setIdentifier] = useState('somchai');
@@ -92,8 +99,8 @@ export const LoginView: React.FC<LoginViewProps> = ({
       return;
     }
 
-    // Match against mock users or demo accounts
-    const foundUser = INITIAL_USERS.find(
+    // Match against database users or demo accounts
+    const foundUser = allAvailableUsers.find(
       (u) =>
         (u.username?.toLowerCase() === identifier.trim().toLowerCase() ||
           u.email.toLowerCase() === identifier.trim().toLowerCase() ||
@@ -218,10 +225,19 @@ export const LoginView: React.FC<LoginViewProps> = ({
             </div>
           </div>
 
-          {/* Footer note */}
-          <div className="relative z-10 pt-4 border-t border-white/15 flex items-center justify-between text-[11px] text-emerald-200/80">
-            <span>ศูนย์บริการข้อมูล อ.ปราสาท</span>
-            <span>สายด่วน 044-551-297</span>
+          {/* Footer note & Database indicator */}
+          <div className="relative z-10 pt-4 border-t border-white/15 space-y-2 text-[11px] text-emerald-200/80">
+            <div className="flex items-center justify-between">
+              <span>ศูนย์บริการข้อมูล อ.ปราสาท</span>
+              <span>สายด่วน 044-551-297</span>
+            </div>
+            <div className="flex items-center gap-1.5 text-xs text-amber-200 bg-emerald-950/50 px-2.5 py-1.5 rounded-xl border border-emerald-600/40">
+              <Database size={13} className="text-amber-300 shrink-0" />
+              <span className="font-semibold text-[11px]">
+                {isDbConnected ? 'ฐานข้อมูล Cloud Firestore: ออนไลน์และเชื่อมต่อแล้ว' : 'กำลังเชื่อมต่อฐานข้อมูล Cloud...'}
+              </span>
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse ml-auto"></span>
+            </div>
           </div>
         </div>
 

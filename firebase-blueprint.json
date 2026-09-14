@@ -1,0 +1,69 @@
+{
+  "entities": {
+    "issues": {
+      "description": "Community issue reports, tickets, tracking, and resolution history in Prasat District",
+      "fields": {
+        "ticketCode": { "type": "string", "description": "Unique code e.g. CC-2026-001" },
+        "title": { "type": "string", "description": "Issue title" },
+        "category": { "type": "string", "description": "Issue category type (road, street_light, etc.)" },
+        "description": { "type": "string", "description": "Detailed description of problem" },
+        "status": { "type": "string", "description": "Status (pending, acknowledged, in_progress, resolved, closed)" },
+        "urgency": { "type": "string", "description": "Urgency rating" },
+        "locationName": { "type": "string", "description": "Location description name" },
+        "province": { "type": "string" },
+        "district": { "type": "string" },
+        "subDistrict": { "type": "string" },
+        "village": { "type": "string" },
+        "locationDetail": { "type": "string" },
+        "latitude": { "type": "number" },
+        "longitude": { "type": "number" },
+        "reporterName": { "type": "string" },
+        "reporterPhone": { "type": "string" },
+        "reporterEmail": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "afterImageUrl": { "type": "string" },
+        "officerNotes": { "type": "string" },
+        "assignedDepartment": { "type": "string" },
+        "assignedOfficer": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" },
+        "timeline": { "type": "array" }
+      }
+    },
+    "users": {
+      "description": "Citizen and government officer profiles in Prasat District",
+      "fields": {
+        "name": { "type": "string", "description": "Full display name" },
+        "username": { "type": "string", "description": "Login username" },
+        "email": { "type": "string", "description": "Email address" },
+        "phone": { "type": "string", "description": "Contact phone number" },
+        "role": { "type": "string", "description": "User role: citizen, officer, admin" },
+        "subDistrict": { "type": "string", "description": "Subdistrict in Prasat" },
+        "village": { "type": "string", "description": "Village in Prasat" },
+        "address": { "type": "string", "description": "Detailed address" },
+        "department": { "type": "string", "description": "Officer government division" },
+        "avatar": { "type": "string", "description": "Avatar image URL" },
+        "isOnline": { "type": "boolean", "description": "Online presence status" }
+      }
+    },
+    "notifications": {
+      "description": "Ticket update and progress notifications for citizens and officers",
+      "fields": {
+        "ticketId": { "type": "string" },
+        "ticketCode": { "type": "string" },
+        "issueTitle": { "type": "string" },
+        "oldStatus": { "type": "string" },
+        "newStatus": { "type": "string" },
+        "updatedAt": { "type": "string" },
+        "officerName": { "type": "string" },
+        "officerNotes": { "type": "string" },
+        "afterImageUrl": { "type": "string" },
+        "subDistrict": { "type": "string" },
+        "village": { "type": "string" },
+        "isRead": { "type": "boolean" },
+        "reporterName": { "type": "string" },
+        "reporterPhone": { "type": "string" }
+      }
+    }
+  }
+}

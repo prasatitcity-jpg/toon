@@ -15,6 +15,7 @@ import {
   LogOut,
   LayoutDashboard,
   Bell,
+  Database,
 } from 'lucide-react';
 import { User, TicketNotification, AppTab } from '../types';
 import { ElephantMascot, PrasatIcon, SurinSilkRibbon } from './SurinMotifs';
@@ -32,6 +33,8 @@ interface NavbarProps {
   onSelectNotification: (notification: TicketNotification) => void;
   onMarkAllNotificationsAsRead: () => void;
   onSimulateStatusChange: () => void;
+  isDbConnected?: boolean;
+  onOpenSqlModal?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -46,6 +49,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onSelectNotification,
   onMarkAllNotificationsAsRead,
   onSimulateStatusChange,
+  isDbConnected = true,
+  onOpenSqlModal,
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -272,6 +277,27 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <span>แจ้งปัญหาใหม่</span>
               </button>
             )}
+
+            {/* Cloud Database Status & SQL Export */}
+            <button
+              id="btn-nav-sql-export"
+              type="button"
+              onClick={onOpenSqlModal}
+              className={`hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] font-semibold border transition-all hover:scale-105 active:scale-95 cursor-pointer ${
+                isDbConnected
+                  ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
+                  : 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
+              }`}
+              title="คลิกเพื่อดูและดาวน์โหลดไฟล์ SQL สำหรับ Supabase"
+            >
+              <Database size={13} className={isDbConnected ? 'text-emerald-600' : 'text-amber-600'} />
+              <span>SQL Supabase</span>
+              <span
+                className={`w-1.5 h-1.5 rounded-full ${
+                  isDbConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'
+                }`}
+              ></span>
+            </button>
 
             {/* Role indicator badge */}
             <div
