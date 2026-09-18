@@ -16,6 +16,8 @@ import {
   LayoutDashboard,
   Bell,
   Database,
+  Settings,
+  BarChart3,
 } from 'lucide-react';
 import { User, TicketNotification, AppTab } from '../types';
 import { ElephantMascot, PrasatIcon, SurinSilkRibbon } from './SurinMotifs';
@@ -251,6 +253,20 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <Users size={16} />
                   <span>สมาชิกออนไลน์</span>
                 </button>
+
+                <button
+                  id="nav-officer-backend"
+                  type="button"
+                  onClick={() => handleNavClick('backend_settings')}
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs xl:text-sm font-bold transition-colors ${
+                    currentTab === 'backend_settings'
+                      ? 'bg-emerald-800 text-white shadow-xs'
+                      : 'text-slate-700 hover:text-emerald-900 hover:bg-emerald-50'
+                  }`}
+                >
+                  <Settings size={16} />
+                  <span>ตั้งค่าหลังบ้าน</span>
+                </button>
               </>
             )}
           </nav>
@@ -297,6 +313,22 @@ export const Navbar: React.FC<NavbarProps> = ({
                   isDbConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'
                 }`}
               ></span>
+            </button>
+
+            {/* Backend Settings (Dashboard & Member) CTA */}
+            <button
+              id="btn-nav-backend"
+              type="button"
+              onClick={() => handleNavClick('backend_settings')}
+              className={`hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all hover:scale-105 active:scale-95 cursor-pointer ${
+                currentTab === 'backend_settings'
+                  ? 'bg-emerald-800 text-white border-emerald-900 shadow-xs'
+                  : 'bg-emerald-50 text-emerald-900 border-emerald-300/80 hover:bg-emerald-100'
+              }`}
+              title="เข้าสู่หน้าการตั้งค่าหลังบ้าน Dashboard และ Member"
+            >
+              <Settings size={13} className={currentTab === 'backend_settings' ? 'text-white' : 'text-emerald-700'} />
+              <span>ตั้งค่าหลังบ้าน</span>
             </button>
 
             {/* Role indicator badge */}
@@ -512,6 +544,22 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <Users size={18} />
                   <span>7. สมาชิกออนไลน์</span>
                 </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleNavClick('backend_settings')}
+                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-bold ${
+                    currentTab === 'backend_settings' ? 'bg-emerald-800 text-white' : 'bg-emerald-50 text-emerald-900 border border-emerald-200'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <Settings size={18} />
+                    <span>8. ตั้งค่าหลังบ้าน & สมาชิก</span>
+                  </div>
+                  <span className="text-[10px] bg-amber-400 text-slate-950 px-2 py-0.5 rounded-full font-bold">
+                    Admin
+                  </span>
+                </button>
               </>
             ) : (
               /* Officer Mobile Menu */
@@ -567,6 +615,24 @@ export const Navbar: React.FC<NavbarProps> = ({
                 >
                   <Users size={18} />
                   <span>4. สมาชิกออนไลน์</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleNavClick('backend_settings')}
+                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-bold ${
+                    currentTab === 'backend_settings'
+                      ? 'bg-emerald-800 text-white'
+                      : 'bg-emerald-50 text-emerald-900 border border-emerald-200'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <Settings size={18} />
+                    <span>5. ตั้งค่าหลังบ้าน (Dashboard & Member)</span>
+                  </div>
+                  <span className="text-[10px] bg-amber-400 text-slate-950 px-2 py-0.5 rounded-full font-bold">
+                    Admin
+                  </span>
                 </button>
               </>
             )}

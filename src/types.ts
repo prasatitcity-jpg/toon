@@ -81,6 +81,9 @@ export interface User {
   avatar: string;
   isOnline?: boolean;
   rememberMe?: boolean;
+  status?: 'active' | 'suspended';
+  createdAt?: string;
+  notes?: string;
 }
 
 export interface CategoryMeta {
@@ -129,5 +132,7 @@ export type AppTab =
   | 'map'
   | 'hotlines'
   | 'online_members'
-  | 'officer';
+  | 'officer'
+  | 'dashboard'
+  | 'backend_settings';
 

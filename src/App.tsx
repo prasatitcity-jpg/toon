@@ -28,6 +28,7 @@ import { OnlineMembersView } from './components/OnlineMembersView';
 import { OfficerDashboard } from './components/OfficerDashboard';
 import { MapView } from './components/MapView';
 import { DashboardView } from './components/DashboardView';
+import { BackendSettingsView } from './components/BackendSettingsView';
 import { IssueDetailModal } from './components/IssueDetailModal';
 import { TicketStatusModal } from './components/TicketStatusModal';
 import { LoginView } from './components/LoginView';
@@ -42,6 +43,7 @@ import {
   saveIssueToFirestore,
   updateIssueInFirestore,
   saveUserToFirestore,
+  deleteUserFromFirestore,
   saveNotificationToFirestore,
   markAllNotificationsReadInFirestore,
   resetDatabaseToDefaults,
@@ -422,6 +424,72 @@ export default function App() {
     });
   };
 
+  // User Management Handlers (Save / Update User)
+  const handleSaveUser = async (userToSave: User) => {
+    try {
+      // Update local state immediately
+      setAllUsers((prev) => {
+        const existingIndex = prev.findIndex((u) => u.id === userToSave.id);
+        if (existingIndex >= 0) {
+          const updated = [...prev];
+          updated[existingIndex] = userToSave;
+          return updated;
+        }
+        return [userToSave, ...prev];
+      });
+
+      // If current active user was modified, update currentUser
+      if (currentUser.id === userToSave.id) {
+        setCurrentUser(userToSave);
+        saveStoredCurrentUser(userToSave);
+      }
+
+      // Sync to Firestore
+      await saveUserToFirestore(userToSave);
+
+      addToast(
+        'success',
+        'บันทึกข้อมูลสมาชิกสำเร็จ',
+        `บันทึกข้อมูล ${userToSave.name} (${
+          userToSave.role === 'officer'
+            ? 'เจ้าหน้าที่'
+            : userToSave.role === 'admin'
+            ? 'แอดมิน'
+            : 'ประชาชน'
+        }) เรียบร้อยแล้ว`
+      );
+    } catch (err) {
+      console.error('Failed to save user:', err);
+      addToast('error', 'บันทึกไม่สำเร็จ', 'ไม่สามารถบันทึกลงฐานข้อมูลได้ กรุณาลองใหม่อีกครั้ง');
+    }
+  };
+
+  // Delete User Handler
+  const handleDeleteUser = async (userId: string) => {
+    if (userId === currentUser.id) {
+      addToast('error', 'ไม่สามารถลบบัญชีตัวเองได้', 'คุณไม่สามารถลบบัญชีที่กำลังเข้าสู่ระบบอยู่ได้');
+      return;
+    }
+
+    try {
+      const userToDelete = allUsers.find((u) => u.id === userId);
+      // Remove from local state
+      setAllUsers((prev) => prev.filter((u) => u.id !== userId));
+
+      // Sync deletion to Firestore
+      await deleteUserFromFirestore(userId);
+
+      addToast(
+        'info',
+        'ลบสมาชิกเรียบร้อย',
+        `ลบบัญชี ${userToDelete?.name || userId} ออกจากระบบแล้ว`
+      );
+    } catch (err) {
+      console.error('Failed to delete user:', err);
+      addToast('error', 'ลบสมาชิกไม่สำเร็จ', 'เกิดข้อผิดพลาดในการลบข้อมูลจากฐานข้อมูล');
+    }
+  };
+
   const handleSelectNotification = (notif: TicketNotification) => {
     // Mark this notification as read
     setNotifications((prev) =>
@@ -563,7 +631,33 @@ export default function App() {
           />
         )}
 
-        {currentTab === 'dashboard' && <DashboardView issues={issues} />}
+        {currentTab === 'dashboard' && (
+          <BackendSettingsView
+            issues={issues}
+            users={allUsers}
+            currentUser={currentUser}
+            onSaveUser={handleSaveUser}
+            onDeleteUser={handleDeleteUser}
+            onOpenSqlModal={() => setIsSqlModalOpen(true)}
+            onResetSystemData={handleResetData}
+            onSelectIssue={(issue) => setSelectedIssue(issue)}
+            isDbConnected={isDbConnected}
+          />
+        )}
+
+        {currentTab === 'backend_settings' && (
+          <BackendSettingsView
+            issues={issues}
+            users={allUsers}
+            currentUser={currentUser}
+            onSaveUser={handleSaveUser}
+            onDeleteUser={handleDeleteUser}
+            onOpenSqlModal={() => setIsSqlModalOpen(true)}
+            onResetSystemData={handleResetData}
+            onSelectIssue={(issue) => setSelectedIssue(issue)}
+            isDbConnected={isDbConnected}
+          />
+        )}
 
         {currentTab === 'officer' && currentUser.role !== 'citizen' && (
           <OfficerDashboard
@@ -715,6 +809,11 @@ export default function App() {
                 <li>
                   <button type="button" onClick={() => setCurrentTab('dashboard')} className="hover:text-emerald-700">
                     สถิติและผลการดำเนินงาน 18 ตำบล
+                  </button>
+                </li>
+                <li>
+                  <button type="button" onClick={() => setCurrentTab('backend_settings')} className="hover:text-emerald-700 font-semibold text-emerald-800 flex items-center gap-1">
+                    <span>⚙️ ตั้งค่าหลังบ้าน (Dashboard & Member)</span>
                   </button>
                 </li>
               </ul>

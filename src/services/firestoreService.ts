@@ -3,6 +3,7 @@ import {
   doc,
   setDoc,
   updateDoc,
+  deleteDoc,
   getDocs,
   onSnapshot,
   writeBatch,
@@ -132,6 +133,16 @@ export async function saveUserToFirestore(user: User): Promise<void> {
     await setDoc(docRef, user);
   } catch (error) {
     console.error('Failed to save user to Firestore:', error);
+    throw error;
+  }
+}
+
+export async function deleteUserFromFirestore(userId: string): Promise<void> {
+  try {
+    const docRef = doc(db, USERS_COLLECTION, userId);
+    await deleteDoc(docRef);
+  } catch (error) {
+    console.error(`Failed to delete user ${userId} from Firestore:`, error);
     throw error;
   }
 }
