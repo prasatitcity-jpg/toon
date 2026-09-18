@@ -67,14 +67,14 @@ export const SqlExportModal: React.FC<SqlExportModalProps> = ({ isOpen, onClose 
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="text-lg font-bold text-white">
-                  ไฟล์ฐานข้อมูล SQL สำหรับ Supabase (PostgreSQL)
+                  ไฟล์โครงสร้างฐานข้อมูล SQL (PostgreSQL & RLS)
                 </h3>
                 <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-400 text-slate-900">
                   Ready to Run
                 </span>
               </div>
               <p className="text-xs text-emerald-100/90 mt-0.5">
-                Prasat Community Care • โครงสร้างตาราง (Schema) + ข้อมูลเริ่มต้น (Seed Data)
+                Prasat Community Care • โครงสร้างตาราง (Schema) + นโยบายความปลอดภัย (RLS)
               </p>
             </div>
           </div>
@@ -97,7 +97,7 @@ export const SqlExportModal: React.FC<SqlExportModalProps> = ({ isOpen, onClose 
                 <span>ดาวน์โหลดหรือคัดลอกคำสั่ง SQL ไปใช้งาน</span>
               </div>
               <p className="text-xs text-slate-600 mt-0.5">
-                ไฟล์ <code className="bg-emerald-100 text-emerald-900 px-1.5 py-0.5 rounded font-mono text-[11px]">database.sql</code> ประกอบด้วยตาราง <strong>users</strong>, <strong>issues</strong>, <strong>notifications</strong> พร้อม RLS Policies และข้อมูลตัวอย่างครบถ้วน
+                ไฟล์ <code className="bg-emerald-100 text-emerald-900 px-1.5 py-0.5 rounded font-mono text-[11px]">database.sql</code> ประกอบด้วยตาราง <strong>profiles</strong>, <strong>reports</strong>, <strong>notifications</strong> พร้อม Row Level Security (RLS) ครบถ้วน
               </p>
             </div>
             <div className="flex items-center gap-2.5 shrink-0">
@@ -130,20 +130,20 @@ export const SqlExportModal: React.FC<SqlExportModalProps> = ({ isOpen, onClose 
             </div>
           </div>
 
-          {/* Quick Guide on How to Use in Supabase */}
+          {/* Quick Guide on How to Use in Database */}
           <div className="space-y-3">
             <h4 className="font-bold text-slate-900 flex items-center gap-2 text-sm">
               <Code2 size={16} className="text-emerald-700" />
-              <span>วิธีนำไฟล์ SQL ไปใส่ใช้งานใน Supabase</span>
+              <span>วิธีนำไฟล์ SQL ไปใส่ในฐานข้อมูล PostgreSQL / Cloud Database</span>
             </h4>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
               <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
                 <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold text-xs mb-2">
                   1
                 </span>
-                <p className="font-semibold text-slate-900 text-xs">เข้าสู่ Supabase</p>
+                <p className="font-semibold text-slate-900 text-xs">เปิดแดชบอร์ดฐานข้อมูล</p>
                 <p className="text-[11px] text-slate-500 mt-1">
-                  ล็อกอินเข้าที่ <strong>supabase.com</strong> แล้วสร้างหรือเปิดโปรเจกต์ของคุณ
+                  เข้าสู่ฐานข้อมูล PostgreSQL ของคุณ
                 </p>
               </div>
 
@@ -151,9 +151,9 @@ export const SqlExportModal: React.FC<SqlExportModalProps> = ({ isOpen, onClose 
                 <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold text-xs mb-2">
                   2
                 </span>
-                <p className="font-semibold text-slate-900 text-xs">ไปที่ SQL Editor</p>
+                <p className="font-semibold text-slate-900 text-xs">เปิด SQL Query Editor</p>
                 <p className="text-[11px] text-slate-500 mt-1">
-                  เลือกเมนู <strong>SQL Editor</strong> ที่แถบซ้าย แล้วคลิก <strong>New query</strong>
+                  เลือกเมนู <strong>SQL Editor</strong> หรือเครื่องมือรันคำสั่ง SQL
                 </p>
               </div>
 
@@ -239,37 +239,32 @@ export const SqlExportModal: React.FC<SqlExportModalProps> = ({ isOpen, onClose 
               </a>
             </div>
             <pre className="p-4 rounded-2xl bg-slate-900 text-emerald-300 font-mono text-xs overflow-x-auto max-h-56 leading-relaxed border border-slate-800 shadow-inner">
-{`-- Prasat Community Care: Supabase / PostgreSQL Schema
+{`-- Prasat Community Care: PostgreSQL Schema & Row Level Security (RLS)
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- Table: users
-CREATE TABLE IF NOT EXISTS users (
-    id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+-- Table: profiles
+CREATE TABLE IF NOT EXISTS profiles (
+    id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+    role TEXT NOT NULL CHECK (role IN ('citizen', 'staff')) DEFAULT 'citizen',
     name TEXT NOT NULL,
-    username TEXT UNIQUE,
-    password TEXT DEFAULT 'password123',
-    email TEXT UNIQUE,
     phone TEXT,
-    role TEXT NOT NULL DEFAULT 'citizen' CHECK (role IN ('citizen', 'officer', 'admin')),
+    department TEXT,
     sub_district TEXT,
     village TEXT,
-    address TEXT,
-    department TEXT,
-    avatar TEXT,
-    is_online BOOLEAN DEFAULT false,
-    created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL,
-    updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
+    last_seen TIMESTAMPTZ DEFAULT timezone('utc'::text, now()),
+    created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
--- Table: issues
-CREATE TABLE IF NOT EXISTS issues (
-    id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+-- Table: reports
+CREATE TABLE IF NOT EXISTS reports (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     ticket_code TEXT UNIQUE NOT NULL,
+    user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
     title TEXT NOT NULL,
     category TEXT NOT NULL,
     description TEXT,
-    status TEXT NOT NULL DEFAULT 'pending',
-    urgency TEXT NOT NULL DEFAULT 'medium',
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'acknowledged', 'in_progress', 'resolved', 'closed')),
+    urgency TEXT NOT NULL DEFAULT 'medium' CHECK (urgency IN ('low', 'medium', 'high', 'urgent')),
     location_name TEXT NOT NULL,
     sub_district TEXT,
     village TEXT,
@@ -279,14 +274,12 @@ CREATE TABLE IF NOT EXISTS issues (
     reporter_phone TEXT NOT NULL,
     image_url TEXT,
     after_image_url TEXT,
-    timeline JSONB DEFAULT '[]'::jsonb,
     created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
--- Row Level Security & Realtime
-ALTER TABLE users ENABLE ROW LEVEL SECURITY;
-ALTER TABLE issues ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Allow public read issues" ON issues FOR SELECT USING (true);`}
+-- Row Level Security
+ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE reports ENABLE ROW LEVEL SECURITY;`}
             </pre>
           </div>
         </div>
@@ -295,7 +288,7 @@ CREATE POLICY "Allow public read issues" ON issues FOR SELECT USING (true);`}
         <div className="bg-slate-50 px-6 py-4 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-xs text-slate-500">
             <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
-            <span>รองรับ Supabase, PostgreSQL 14+, Neon, Cloud SQL ได้ 100%</span>
+            <span>รองรับมาตรฐาน PostgreSQL 14+ และ Cloud Database พร้อม RLS ครบถ้วน</span>
           </div>
           <div className="flex items-center gap-2">
             <button

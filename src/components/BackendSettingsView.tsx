@@ -396,7 +396,7 @@ export const BackendSettingsView: React.FC<BackendSettingsViewProps> = ({
             </h1>
             <p className="text-sm text-emerald-100/80 max-w-2xl leading-relaxed">
               ติดตามสถิติคำร้องเรียนรายตำบล ตัวชี้วัดประสิทธิภาพ (SLA) จัดการบัญชีสมาชิกและเจ้าหน้าที่อปท.
-              พร้อมตั้งค่าฐานข้อมูล Cloud และส่งออกคำสั่ง SQL สำหรับ Supabase
+              พร้อมตั้งค่าความปลอดภัยและสคริปต์โครงสร้างฐานข้อมูลกลาง
             </p>
           </div>
 
@@ -409,7 +409,7 @@ export const BackendSettingsView: React.FC<BackendSettingsViewProps> = ({
               className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs shadow-md transition-all active:scale-95 cursor-pointer"
             >
               <FileCode size={15} />
-              <span>SQL Supabase</span>
+              <span>สคริปต์ SQL</span>
             </button>
             <button
               id="btn-backend-download-backup"
@@ -1253,7 +1253,7 @@ export const BackendSettingsView: React.FC<BackendSettingsViewProps> = ({
                   การจัดการฐานข้อมูลและการสำรองข้อมูล (Database & Cloud Maintenance)
                 </h3>
                 <p className="text-xs text-slate-500">
-                  ตรวจสอบความสมบูรณ์ ซิงค์ข้อมูลกับ Supabase หรือรีเซ็ตข้อมูลสู่ค่าเริ่มต้น
+                  ตรวจสอบความสมบูรณ์ ซิงค์ข้อมูลกับฐานข้อมูลกลาง หรือรีเซ็ตข้อมูลสู่ค่าเริ่มต้น
                 </p>
               </div>
             </div>
@@ -1261,24 +1261,24 @@ export const BackendSettingsView: React.FC<BackendSettingsViewProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-3 border-t border-slate-100">
               <div className="p-4 rounded-2xl bg-emerald-50/50 border border-emerald-200/80 space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-emerald-950">Cloud Firestore</span>
+                  <span className="text-xs font-bold text-emerald-950">ฐานข้อมูลกลาง (PostgreSQL)</span>
                   <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
                 </div>
                 <p className="text-[11px] text-emerald-800">
                   กำลังซิงค์ {totalIssues} คำร้อง และ {totalUsersCount} สมาชิกแบบ Real-time
                 </p>
                 <div className="text-[10px] text-slate-400 font-mono truncate">
-                  db: ai-studio-communitycare
+                  db: prasat_community_care
                 </div>
               </div>
 
               <div className="p-4 rounded-2xl bg-amber-50/50 border border-amber-200/80 space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-amber-950">Supabase SQL</span>
+                  <span className="text-xs font-bold text-amber-950">โครงสร้าง SQL & RLS</span>
                   <FileCode size={14} className="text-amber-700" />
                 </div>
                 <p className="text-[11px] text-amber-800">
-                  ส่งออก Schema & Seed data เป็นสคริปต์ SQL พร้อมรันใน Supabase Editor
+                  ส่งออก Schema & Seed data เป็นสคริปต์ SQL พร้อมนโยบายรักษาความปลอดภัย RLS
                 </p>
                 <button
                   type="button"

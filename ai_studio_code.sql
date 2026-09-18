@@ -1,11 +1,13 @@
 -- ====================================================================
--- Prasat Community Care (ระบบแจ้งและติดตามปัญหาชุมชน อำเภอปราสาท)
--- PostgreSQL & Supabase Database Schema with Seed Data
+-- Prasat Community Care (ระบบแจ้งและติดตามปัญหาชุมชน อำเภอปราสาท จ.สุรินทร์)
+-- Database Architecture & Row Level Security (RLS) Specification
+-- Roles: citizen (ประชาชน), staff (เจ้าหน้าที่)
 -- ====================================================================
 
+-- 0. Extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- ฟังก์ชันอัปเดต timestamp อัตโนมัติ (Trigger Function)
+-- Helper Trigger for updated_at
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -14,35 +16,40 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- 1. ตารางผู้ใช้งาน (users)
-CREATE TABLE IF NOT EXISTS users (
-    id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+-- 1. Profiles Table (Linked to auth.users)
+-- Strict Role Control: citizen (ประชาชน) and staff (เจ้าหน้าที่) only
+CREATE TABLE IF NOT EXISTS public.profiles (
+    user_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
-    username TEXT UNIQUE,
-    password TEXT DEFAULT 'password123',
-    email TEXT UNIQUE,
+    email TEXT UNIQUE NOT NULL,
     phone TEXT,
-    role TEXT NOT NULL DEFAULT 'citizen' CHECK (role IN ('citizen', 'officer', 'admin')),
+    role TEXT NOT NULL DEFAULT 'citizen' CHECK (role IN ('citizen', 'staff')),
     sub_district TEXT,
     village TEXT,
     address TEXT,
     department TEXT,
     avatar TEXT,
-    is_online BOOLEAN DEFAULT false,
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'suspended')),
+    last_seen TIMESTAMPTZ DEFAULT timezone('utc'::text, now()),
     created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL,
     updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
-DROP TRIGGER IF EXISTS trg_users_updated_at ON users;
-CREATE TRIGGER trg_users_updated_at
-    BEFORE UPDATE ON users
+DROP TRIGGER IF EXISTS trg_profiles_updated_at ON public.profiles;
+CREATE TRIGGER trg_profiles_updated_at
+    BEFORE UPDATE ON public.profiles
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
 
--- 2. ตารางเรื่องร้องเรียน/ปัญหาชุมชน (issues)
-CREATE TABLE IF NOT EXISTS issues (
-    id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
-    ticket_code TEXT UNIQUE NOT NULL,
+CREATE INDEX IF NOT EXISTS idx_profiles_role ON public.profiles(role);
+CREATE INDEX IF NOT EXISTS idx_profiles_sub_district ON public.profiles(sub_district);
+CREATE INDEX IF NOT EXISTS idx_profiles_last_seen ON public.profiles(last_seen DESC);
+
+-- 2. Reports / Issues Table
+CREATE TABLE IF NOT EXISTS public.reports (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    ticket_number TEXT UNIQUE NOT NULL,
+    user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
     title TEXT NOT NULL,
     category TEXT NOT NULL CHECK (category IN (
         'road', 'street_light', 'garbage', 'water_supply',
@@ -58,7 +65,7 @@ CREATE TABLE IF NOT EXISTS issues (
     location_name TEXT NOT NULL,
     province TEXT DEFAULT 'สุรินทร์',
     district TEXT DEFAULT 'อำเภอปราสาท',
-    sub_district TEXT,
+    subdistrict TEXT,
     village TEXT,
     location_detail TEXT,
     latitude NUMERIC(10, 6) NOT NULL,
@@ -77,96 +84,228 @@ CREATE TABLE IF NOT EXISTS issues (
     updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
-DROP TRIGGER IF EXISTS trg_issues_updated_at ON issues;
-CREATE TRIGGER trg_issues_updated_at
-    BEFORE UPDATE ON issues
+DROP TRIGGER IF EXISTS trg_reports_updated_at ON public.reports;
+CREATE TRIGGER trg_reports_updated_at
+    BEFORE UPDATE ON public.reports
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
 
-CREATE INDEX IF NOT EXISTS idx_issues_ticket_code ON issues(ticket_code);
-CREATE INDEX IF NOT EXISTS idx_issues_status ON issues(status);
-CREATE INDEX IF NOT EXISTS idx_issues_category ON issues(category);
-CREATE INDEX IF NOT EXISTS idx_issues_sub_district ON issues(sub_district);
-CREATE INDEX IF NOT EXISTS idx_issues_reporter_phone ON issues(reporter_phone);
-CREATE INDEX IF NOT EXISTS idx_issues_created_at ON issues(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_reports_ticket_number ON public.reports(ticket_number);
+CREATE INDEX IF NOT EXISTS idx_reports_user_id ON public.reports(user_id);
+CREATE INDEX IF NOT EXISTS idx_reports_status ON public.reports(status);
+CREATE INDEX IF NOT EXISTS idx_reports_category ON public.reports(category);
+CREATE INDEX IF NOT EXISTS idx_reports_subdistrict ON public.reports(subdistrict);
+CREATE INDEX IF NOT EXISTS idx_reports_created_at ON public.reports(created_at DESC);
 
--- 3. ตารางการแจ้งเตือน (notifications)
-CREATE TABLE IF NOT EXISTS notifications (
-    id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
-    ticket_id TEXT REFERENCES issues(id) ON DELETE CASCADE,
+-- 3. Report Updates / Action Log
+CREATE TABLE IF NOT EXISTS public.report_updates (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    report_id UUID REFERENCES public.reports(id) ON DELETE CASCADE NOT NULL,
+    status TEXT NOT NULL,
+    note TEXT,
+    photo_url TEXT,
+    staff_id UUID REFERENCES auth.users(id),
+    staff_name TEXT,
+    created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_report_updates_report_id ON public.report_updates(report_id);
+
+-- 4. Notifications Table
+CREATE TABLE IF NOT EXISTS public.notifications (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    report_id UUID REFERENCES public.reports(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
     ticket_code TEXT NOT NULL,
     issue_title TEXT NOT NULL,
-    old_status TEXT NOT NULL,
+    old_status TEXT,
     new_status TEXT NOT NULL,
     officer_name TEXT,
     officer_notes TEXT,
     after_image_url TEXT,
-    sub_district TEXT,
-    village TEXT,
-    is_read BOOLEAN DEFAULT false,
-    reporter_name TEXT,
-    reporter_phone TEXT,
-    updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
+    is_read BOOLEAN DEFAULT false NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_notifications_ticket_code ON notifications(ticket_code);
-CREATE INDEX IF NOT EXISTS idx_notifications_is_read ON notifications(is_read);
+CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON public.notifications(user_id);
+CREATE INDEX IF NOT EXISTS idx_notifications_is_read ON public.notifications(is_read);
 
--- 4. นโยบายความปลอดภัย Supabase Row Level Security (RLS)
-ALTER TABLE users ENABLE ROW LEVEL SECURITY;
-ALTER TABLE issues ENABLE ROW LEVEL SECURITY;
-ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
+-- ====================================================================
+-- Security Definer Functions (Role Checking & Privacy Protection)
+-- ====================================================================
 
-CREATE POLICY "Allow public read users" ON users FOR SELECT USING (true);
-CREATE POLICY "Allow public insert users" ON users FOR INSERT WITH CHECK (true);
-CREATE POLICY "Allow public update users" ON users FOR UPDATE USING (true);
+-- Check if current authenticated user is a verified staff member from the database
+CREATE OR REPLACE FUNCTION public.is_staff()
+RETURNS BOOLEAN AS $$
+BEGIN
+    RETURN EXISTS (
+        SELECT 1 FROM public.profiles
+        WHERE user_id = auth.uid()
+          AND role = 'staff'
+          AND status = 'active'
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
-CREATE POLICY "Allow public read issues" ON issues FOR SELECT USING (true);
-CREATE POLICY "Allow public insert issues" ON issues FOR INSERT WITH CHECK (true);
-CREATE POLICY "Allow public update issues" ON issues FOR UPDATE USING (true);
+-- Safe Online Members Aggregation (Never leaks citizen personal details)
+CREATE OR REPLACE FUNCTION public.get_online_members_stats()
+RETURNS TABLE (
+    online_citizens BIGINT,
+    online_staff BIGINT,
+    total_active BIGINT
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT
+        COUNT(CASE WHEN role = 'citizen' THEN 1 END) AS online_citizens,
+        COUNT(CASE WHEN role = 'staff' THEN 1 END) AS online_staff,
+        COUNT(1) AS total_active
+    FROM public.profiles
+    WHERE last_seen >= (timezone('utc'::text, now()) - INTERVAL '5 minutes')
+      AND status = 'active';
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
-CREATE POLICY "Allow public read notifications" ON notifications FOR SELECT USING (true);
-CREATE POLICY "Allow public insert notifications" ON notifications FOR INSERT WITH CHECK (true);
-CREATE POLICY "Allow public update notifications" ON notifications FOR UPDATE USING (true);
+-- Automatic Profile Creation Trigger on Supabase Auth Sign Up
+-- STRICT RULE: All self-registered users are ALWAYS assigned role = 'citizen'
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER AS $$
+BEGIN
+    INSERT INTO public.profiles (
+        user_id,
+        name,
+        email,
+        phone,
+        role,
+        sub_district,
+        village,
+        status,
+        last_seen
+    )
+    VALUES (
+        NEW.id,
+        COALESCE(NEW.raw_user_meta_data->>'name', 'ประชาชน อ.ปราสาท'),
+        NEW.email,
+        COALESCE(NEW.raw_user_meta_data->>'phone', ''),
+        'citizen', -- Always citizen. Never staff.
+        COALESCE(NEW.raw_user_meta_data->>'sub_district', 'กังแอน'),
+        COALESCE(NEW.raw_user_meta_data->>'village', ''),
+        'active',
+        timezone('utc'::text, now())
+    )
+    ON CONFLICT (user_id) DO NOTHING;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- 5. ข้อมูลตัวอย่างเริ่มต้น (Seed Data)
-INSERT INTO users (id, name, username, password, email, phone, role, sub_district, village, address, department, avatar, is_online)
-VALUES
-(
-  'usr-1', 'คุณสมชาย ใจดี', 'somchai', 'password123', 'somchai.citizen@example.com',
-  '081-234-5678', 'citizen', 'กังแอน', 'หมู่ 1 บ้านปะอาว', 'บ้านเลขที่ 45 หมู่ 1 ต.กังแอน อ.ปราสาท จ.สุรินทร์',
-  NULL, 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80', true
-),
-(
-  'usr-2', 'นายช่างเกรียงไกร สิทธิโชค', 'kriangkrai', 'password123', 'kriangkrai.officer@communitycare.gov.th',
-  '089-876-5432', 'officer', 'กังแอน', NULL, NULL,
-  'กองช่าง เทศบาลตำบลกังแอน', 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=150&auto=format&fit=crop&q=80', true
-),
-(
-  'usr-3', 'นางสาวกานดา รักชุมชน', 'kanda', 'password123', 'kanda.admin@communitycare.gov.th',
-  '086-555-1234', 'officer', 'เชื้อเพลิง', NULL, NULL,
-  'กองสาธารณสุขและสิ่งแวดล้อม อบต.เชื้อเพลิง', 'https://images.unsplash.com/photo-1580489944761-15a19d654956?w=150&auto=format&fit=crop&q=80', true
-)
-ON CONFLICT (id) DO NOTHING;
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+    AFTER INSERT ON auth.users
+    FOR EACH ROW
+    EXECUTE FUNCTION public.handle_new_user();
 
-INSERT INTO issues (
-  id, ticket_code, title, category, description, status, urgency,
-  province, district, sub_district, village, location_detail, location_name,
-  latitude, longitude, reporter_name, reporter_phone, reporter_email,
-  image_url, after_image_url, assigned_department, assigned_officer, officer_notes,
-  created_at, updated_at, timeline
-)
-VALUES
-(
-  'issue-001', 'CC-2026-001', 'ถนนแอสฟัลต์ชำรุดเป็นหลุมลึกใกล้หน้าโรงเรียนปราสาทวิทยาคาร',
-  'road', 'ผิวจราจรทรุดตัวเป็นหลุมลึกประมาณ 15 ซม. กว้างเกือบ 1 เมตร เสี่ยงอุบัติเหตุ',
-  'in_progress', 'urgent', 'สุรินทร์', 'อำเภอปราสาท', 'กังแอน', 'หมู่ 1 บ้านปะอาว',
-  'ตรงข้ามประตู 2 โรงเรียนปราสาทวิทยาคาร', 'หน้าโรงเรียนปราสาทวิทยาคาร ต.กังแอน อ.ปราสาท',
-  14.643300, 103.407200, 'คุณสมชาย ใจดี', '081-234-5678', 'somchai.citizen@example.com',
-  'https://images.unsplash.com/photo-1515162816999-a0c47dc192f7?w=800&auto=format&fit=crop&q=80',
-  NULL, 'กองช่าง เทศบาลตำบลกังแอน', 'นายช่างเกรียงไกร สิทธิโชค',
-  'นำกรวยยางและป้ายสะท้อนแสงไปวางกั้นแล้ว ประสานรถบดเข้าซ่อมแซมช่วงบ่าย',
-  '2026-09-02 08:30:00+00', '2026-09-03 10:15:00+00',
-  '[{"id": "tl-101", "status": "pending", "title": "แจ้งปัญหาผ่านระบบออนไลน์", "timestamp": "2026-09-02T08:30:00.000Z", "actor": "คุณสมชาย ใจดี", "actorRole": "citizen"}]'::jsonb
-)
-ON CONFLICT (id) DO NOTHING;
+-- ====================================================================
+-- Row Level Security (RLS) Policies
+-- ====================================================================
+
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.reports ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.report_updates ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
+
+-- --------------------------------------------------------------------
+-- PROFILES POLICIES
+-- --------------------------------------------------------------------
+-- Citizen can only read their own profile; Staff can read profiles for duty
+CREATE POLICY "profiles_select_policy"
+    ON public.profiles FOR SELECT
+    USING (
+        auth.uid() = user_id
+        OR public.is_staff()
+    );
+
+-- Citizen can only insert their own profile with role = 'citizen'
+CREATE POLICY "profiles_insert_policy"
+    ON public.profiles FOR INSERT
+    WITH CHECK (
+        auth.uid() = user_id
+        AND role = 'citizen'
+    );
+
+-- Citizen can update their own personal info, but CANNOT alter their role
+CREATE POLICY "profiles_update_own"
+    ON public.profiles FOR UPDATE
+    USING (auth.uid() = user_id)
+    WITH CHECK (
+        auth.uid() = user_id
+        -- Ensure role cannot be elevated to staff by user
+        AND (role = (SELECT p.role FROM public.profiles p WHERE p.user_id = auth.uid()))
+    );
+
+-- --------------------------------------------------------------------
+-- REPORTS POLICIES
+-- --------------------------------------------------------------------
+-- Citizen reads only their own reports; Staff reads all reports across 18 subdistricts
+CREATE POLICY "reports_select_policy"
+    ON public.reports FOR SELECT
+    USING (
+        auth.uid() = user_id
+        OR public.is_staff()
+    );
+
+-- Citizen can insert reports linked to their own user_id
+CREATE POLICY "reports_insert_policy"
+    ON public.reports FOR INSERT
+    WITH CHECK (
+        auth.uid() = user_id
+    );
+
+-- Staff can update any report (status, notes, after_image). Citizen can only update pending reports.
+CREATE POLICY "reports_update_policy"
+    ON public.reports FOR UPDATE
+    USING (
+        public.is_staff()
+        OR (auth.uid() = user_id AND status = 'pending')
+    );
+
+-- Only staff can delete/archive reports
+CREATE POLICY "reports_delete_policy"
+    ON public.reports FOR DELETE
+    USING (
+        public.is_staff()
+    );
+
+-- --------------------------------------------------------------------
+-- REPORT UPDATES POLICIES
+-- --------------------------------------------------------------------
+CREATE POLICY "report_updates_select_policy"
+    ON public.report_updates FOR SELECT
+    USING (
+        EXISTS (
+            SELECT 1 FROM public.reports r
+            WHERE r.id = report_updates.report_id
+              AND (r.user_id = auth.uid() OR public.is_staff())
+        )
+    );
+
+CREATE POLICY "report_updates_insert_policy"
+    ON public.report_updates FOR INSERT
+    WITH CHECK (
+        public.is_staff()
+    );
+
+-- --------------------------------------------------------------------
+-- NOTIFICATIONS POLICIES
+-- --------------------------------------------------------------------
+CREATE POLICY "notifications_select_policy"
+    ON public.notifications FOR SELECT
+    USING (
+        auth.uid() = user_id
+        OR public.is_staff()
+    );
+
+CREATE POLICY "notifications_update_policy"
+    ON public.notifications FOR UPDATE
+    USING (
+        auth.uid() = user_id
+    );

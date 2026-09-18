@@ -39,6 +39,7 @@ export interface ContactLogEntry {
 export interface Issue {
   id: string;
   ticketCode: string;
+  userId?: string;
   title: string;
   category: CategoryType;
   description: string;
@@ -66,6 +67,8 @@ export interface Issue {
   timeline: TimelineEvent[];
 }
 
+export type UserRole = 'citizen' | 'staff';
+
 export interface User {
   id: string;
   name: string;
@@ -73,7 +76,7 @@ export interface User {
   password?: string;
   email: string;
   phone: string;
-  role: 'citizen' | 'officer' | 'admin';
+  role: UserRole | 'officer' | 'admin'; // 'officer'/'admin' normalized to 'staff'
   subDistrict?: string;
   village?: string;
   address?: string;
@@ -82,6 +85,7 @@ export interface User {
   isOnline?: boolean;
   rememberMe?: boolean;
   status?: 'active' | 'suspended';
+  lastSeen?: string;
   createdAt?: string;
   notes?: string;
 }

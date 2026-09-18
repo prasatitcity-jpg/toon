@@ -294,42 +294,46 @@ export const Navbar: React.FC<NavbarProps> = ({
               </button>
             )}
 
-            {/* Cloud Database Status & SQL Export */}
-            <button
-              id="btn-nav-sql-export"
-              type="button"
-              onClick={onOpenSqlModal}
-              className={`hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] font-semibold border transition-all hover:scale-105 active:scale-95 cursor-pointer ${
-                isDbConnected
-                  ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
-                  : 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
-              }`}
-              title="คลิกเพื่อดูและดาวน์โหลดไฟล์ SQL สำหรับ Supabase"
-            >
-              <Database size={13} className={isDbConnected ? 'text-emerald-600' : 'text-amber-600'} />
-              <span>SQL Supabase</span>
-              <span
-                className={`w-1.5 h-1.5 rounded-full ${
-                  isDbConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'
+            {/* Cloud Database Schema & SQL Export (Staff Only) */}
+            {isOfficer && (
+              <button
+                id="btn-nav-sql-export"
+                type="button"
+                onClick={onOpenSqlModal}
+                className={`hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] font-semibold border transition-all hover:scale-105 active:scale-95 cursor-pointer ${
+                  isDbConnected
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
+                    : 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
                 }`}
-              ></span>
-            </button>
+                title="โครงสร้างฐานข้อมูลและสคริปต์ SQL ของระบบ"
+              >
+                <Database size={13} className={isDbConnected ? 'text-emerald-600' : 'text-amber-600'} />
+                <span>โครงสร้างฐานข้อมูล</span>
+                <span
+                  className={`w-1.5 h-1.5 rounded-full ${
+                    isDbConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'
+                  }`}
+                ></span>
+              </button>
+            )}
 
-            {/* Backend Settings (Dashboard & Member) CTA */}
-            <button
-              id="btn-nav-backend"
-              type="button"
-              onClick={() => handleNavClick('backend_settings')}
-              className={`hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all hover:scale-105 active:scale-95 cursor-pointer ${
-                currentTab === 'backend_settings'
-                  ? 'bg-emerald-800 text-white border-emerald-900 shadow-xs'
-                  : 'bg-emerald-50 text-emerald-900 border-emerald-300/80 hover:bg-emerald-100'
-              }`}
-              title="เข้าสู่หน้าการตั้งค่าหลังบ้าน Dashboard และ Member"
-            >
-              <Settings size={13} className={currentTab === 'backend_settings' ? 'text-white' : 'text-emerald-700'} />
-              <span>ตั้งค่าหลังบ้าน</span>
-            </button>
+            {/* Backend Settings (Staff Only) */}
+            {isOfficer && (
+              <button
+                id="btn-nav-backend"
+                type="button"
+                onClick={() => handleNavClick('backend_settings')}
+                className={`hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all hover:scale-105 active:scale-95 cursor-pointer ${
+                  currentTab === 'backend_settings'
+                    ? 'bg-emerald-800 text-white border-emerald-900 shadow-xs'
+                    : 'bg-emerald-50 text-emerald-900 border-emerald-300/80 hover:bg-emerald-100'
+                }`}
+                title="เข้าสู่หน้าการตั้งค่าหลังบ้าน Dashboard และ Member"
+              >
+                <Settings size={13} className={currentTab === 'backend_settings' ? 'text-white' : 'text-emerald-700'} />
+                <span>ตั้งค่าหลังบ้าน</span>
+              </button>
+            )}
 
             {/* Role indicator badge */}
             <div
@@ -543,22 +547,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                 >
                   <Users size={18} />
                   <span>7. สมาชิกออนไลน์</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleNavClick('backend_settings')}
-                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-bold ${
-                    currentTab === 'backend_settings' ? 'bg-emerald-800 text-white' : 'bg-emerald-50 text-emerald-900 border border-emerald-200'
-                  }`}
-                >
-                  <div className="flex items-center gap-3">
-                    <Settings size={18} />
-                    <span>8. ตั้งค่าหลังบ้าน & สมาชิก</span>
-                  </div>
-                  <span className="text-[10px] bg-amber-400 text-slate-950 px-2 py-0.5 rounded-full font-bold">
-                    Admin
-                  </span>
                 </button>
               </>
             ) : (
