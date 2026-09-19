@@ -41,6 +41,11 @@ import {
   Sparkles,
   RefreshCw,
   FileCode,
+  ShieldAlert,
+  Briefcase,
+  Key,
+  Ban,
+  ArrowRight,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -61,6 +66,13 @@ import { Issue, User, IssueStatus } from '../types';
 import { CATEGORIES, STATUSES, DEPARTMENTS } from '../data/categories';
 import { PRASAT_SUB_DISTRICTS } from '../data/prasatLocations';
 import { ElephantMascot, PrasatIcon, SurinCommunityBadge, SurinSilkRibbon } from './SurinMotifs';
+import {
+  getStaffApplications,
+  approveStaffApplication,
+  rejectStaffApplication,
+  suspendUser,
+  reactivateUser,
+} from '../services/supabaseService';
 
 interface BackendSettingsViewProps {
   issues: Issue[];
@@ -74,7 +86,7 @@ interface BackendSettingsViewProps {
   isDbConnected?: boolean;
 }
 
-type BackendSubTab = 'dashboard' | 'members' | 'settings';
+type BackendSubTab = 'dashboard' | 'staff_requests' | 'members' | 'settings';
 
 export const BackendSettingsView: React.FC<BackendSettingsViewProps> = ({
   issues,
@@ -88,6 +100,17 @@ export const BackendSettingsView: React.FC<BackendSettingsViewProps> = ({
   isDbConnected = true,
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<BackendSubTab>('dashboard');
+
+  // --- STAFF APPLICATION MANAGEMENT (SUPER ADMIN) ---
+  const [staffApps, setStaffApps] = useState<User[]>([]);
+  const [isLoadingStaffApps, setIsLoadingStaffApps] = useState(false);
+  const [staffActionLoadingId, setStaffActionLoadingId] = useState<string | null>(null);
+  const [staffActionMsg, setStaffActionMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [staffTabFilter, setStaffTabFilter] = useState<'all' | 'pending' | 'active' | 'rejected' | 'suspended'>('all');
+  const [staffSearchQuery, setStaffSearchQuery] = useState('');
+  const [rejectModalApp, setRejectModalApp] = useState<User | null>(null);
+  const [rejectReason, setRejectReason] = useState('รหัสหน่วยงานหรือรหัสเชิญไม่ถูกต้อง');
+  const [rejectCustomReason, setRejectCustomReason] = useState('');
 
   // --- MEMBER MANAGEMENT STATES ---
   const [searchTerm, setSearchTerm] = useState('');
@@ -357,6 +380,183 @@ export const BackendSettingsView: React.FC<BackendSettingsViewProps> = ({
     URL.revokeObjectURL(url);
   };
 
+  // Load Staff Applications on mount
+  const loadStaffApps = async () => {
+    setIsLoadingStaffApps(true);
+    try {
+      const apps = await getStaffApplications();
+      setStaffApps(apps);
+    } catch (err) {
+      console.error('Failed to load staff applications:', err);
+    } finally {
+      setIsLoadingStaffApps(false);
+    }
+  };
+
+  React.useEffect(() => {
+    loadStaffApps();
+  }, []);
+
+  // Super Admin Check
+  const isSuperAdmin = currentUser.role === 'super_admin' || currentUser.id === 'usr-admin';
+  const isAuthorizedRole =
+    currentUser.role === 'officer' ||
+    currentUser.role === 'admin' ||
+    currentUser.role === 'staff' ||
+    currentUser.role === 'super_admin' ||
+    currentUser.id === 'usr-admin';
+
+  // Rule 9: Citizen and staff_pending are strictly barred from backend settings and staff requests
+  if (
+    !isAuthorizedRole ||
+    currentUser.role === 'citizen' ||
+    currentUser.role === 'staff_pending' ||
+    currentUser.status === 'pending' ||
+    currentUser.status === 'suspended'
+  ) {
+    return (
+      <div className="max-w-xl mx-auto my-16 p-8 bg-white rounded-3xl border border-rose-200 shadow-xl text-center space-y-4">
+        <div className="w-16 h-16 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto">
+          <ShieldAlert size={32} />
+        </div>
+        <h2 className="text-xl font-bold text-slate-900">ไม่มีสิทธิ์เข้าถึงระบบจัดการหลังบ้าน</h2>
+        <p className="text-sm text-slate-600 leading-relaxed">
+          {currentUser.role === 'staff_pending' || currentUser.status === 'pending'
+            ? 'บัญชีเจ้าหน้าที่ของคุณอยู่ระหว่างรอการตรวจสอบและอนุมัติจากผู้ดูแลระบบสูงสุด (Super Admin) กรุณารอการอนุมัติก่อนเข้าใช้งาน'
+            : currentUser.status === 'suspended'
+            ? 'บัญชีผู้ใช้งานนี้ถูกระงับการเข้าถึงระบบชั่วคราว กรุณาติดต่อศูนย์ประสานงาน อ.ปราสาท'
+            : 'หน้านี้สงวนสิทธิ์เฉพาะเจ้าหน้าที่และผู้ดูแลระบบที่ได้รับการอนุมัติสิทธิ์จากฐานข้อมูลเท่านั้น'}
+        </p>
+      </div>
+    );
+  }
+
+  // Staff application actions
+  const handleApproveStaff = async (app: User) => {
+    if (!isSuperAdmin) {
+      alert('เฉพาะ Super Admin ที่ได้รับสิทธิ์เท่านั้นที่สามารถอนุมัติได้');
+      return;
+    }
+    setStaffActionLoadingId(app.id);
+    setStaffActionMsg(null);
+    try {
+      const updated = await approveStaffApplication(app.id);
+      setStaffApps((prev) => prev.map((item) => (item.id === app.id ? updated : item)));
+      await onSaveUser(updated);
+      setStaffActionMsg({
+        type: 'success',
+        text: `อนุมัติบัญชี ${app.name} (${app.department} - ${app.position || 'เจ้าหน้าที่'}) สำเร็จแล้ว`,
+      });
+      await loadStaffApps();
+    } catch (err: any) {
+      setStaffActionMsg({
+        type: 'error',
+        text: err?.message || 'เกิดข้อผิดพลาดในการอนุมัติบัญชี',
+      });
+    } finally {
+      setStaffActionLoadingId(null);
+    }
+  };
+
+  const handleOpenRejectModal = (app: User) => {
+    setRejectModalApp(app);
+    setRejectReason('รหัสหน่วยงานหรือรหัสเชิญไม่ถูกต้อง');
+    setRejectCustomReason('');
+  };
+
+  const handleConfirmReject = async () => {
+    if (!rejectModalApp || !isSuperAdmin) return;
+    setStaffActionLoadingId(rejectModalApp.id);
+    const finalReason =
+      rejectReason === 'custom'
+        ? rejectCustomReason.trim() || 'คำขอไม่ผ่านการตรวจสอบ'
+        : rejectReason;
+    try {
+      const updated = await rejectStaffApplication(rejectModalApp.id, finalReason);
+      setStaffApps((prev) => prev.map((item) => (item.id === rejectModalApp.id ? updated : item)));
+      await onSaveUser(updated);
+      setStaffActionMsg({
+        type: 'success',
+        text: `ปฏิเสธคำขอของ ${rejectModalApp.name} เรียบร้อยแล้ว`,
+      });
+      setRejectModalApp(null);
+      await loadStaffApps();
+    } catch (err: any) {
+      setStaffActionMsg({
+        type: 'error',
+        text: err?.message || 'เกิดข้อผิดพลาดในการปฏิเสธคำขอ',
+      });
+    } finally {
+      setStaffActionLoadingId(null);
+    }
+  };
+
+  const handleSuspendStaff = async (app: User) => {
+    if (!isSuperAdmin) return;
+    setStaffActionLoadingId(app.id);
+    try {
+      const updated = await suspendUser(app.id);
+      setStaffApps((prev) => prev.map((item) => (item.id === app.id ? updated : item)));
+      await onSaveUser(updated);
+      setStaffActionMsg({
+        type: 'success',
+        text: `ระงับบัญชีผู้ใช้ ${app.name} ชั่วคราวแล้ว`,
+      });
+      await loadStaffApps();
+    } catch (err: any) {
+      setStaffActionMsg({
+        type: 'error',
+        text: err?.message || 'เกิดข้อผิดพลาดในการระงับบัญชี',
+      });
+    } finally {
+      setStaffActionLoadingId(null);
+    }
+  };
+
+  const handleReactivateStaff = async (app: User) => {
+    if (!isSuperAdmin) return;
+    setStaffActionLoadingId(app.id);
+    try {
+      const updated = await reactivateUser(app.id);
+      setStaffApps((prev) => prev.map((item) => (item.id === app.id ? updated : item)));
+      await onSaveUser(updated);
+      setStaffActionMsg({
+        type: 'success',
+        text: `คืนสิทธิ์การใช้งานบัญชี ${app.name} สำเร็จ`,
+      });
+      await loadStaffApps();
+    } catch (err: any) {
+      setStaffActionMsg({
+        type: 'error',
+        text: err?.message || 'เกิดข้อผิดพลาดในการคืนสิทธิ์บัญชี',
+      });
+    } finally {
+      setStaffActionLoadingId(null);
+    }
+  };
+
+  const pendingStaffApps = staffApps.filter(
+    (a) => a.role === 'staff_pending' || a.status === 'pending'
+  );
+
+  const filteredStaffApps = staffApps.filter((app) => {
+    if (staffTabFilter === 'pending' && !(app.role === 'staff_pending' || app.status === 'pending')) return false;
+    if (staffTabFilter === 'active' && app.status !== 'active') return false;
+    if (staffTabFilter === 'rejected' && app.status !== 'rejected') return false;
+    if (staffTabFilter === 'suspended' && app.status !== 'suspended') return false;
+
+    if (staffSearchQuery.trim()) {
+      const q = staffSearchQuery.toLowerCase();
+      const matchName = app.name.toLowerCase().includes(q);
+      const matchEmail = app.email.toLowerCase().includes(q);
+      const matchDept = app.department?.toLowerCase().includes(q) || false;
+      const matchPos = app.position?.toLowerCase().includes(q) || false;
+      const matchInvite = app.inviteCode?.toLowerCase().includes(q) || false;
+      if (!matchName && !matchEmail && !matchDept && !matchPos && !matchInvite) return false;
+    }
+    return true;
+  });
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8 animate-in fade-in duration-200">
       {/* Top Banner & Title Bar */}
@@ -425,20 +625,47 @@ export const BackendSettingsView: React.FC<BackendSettingsViewProps> = ({
         </div>
       </div>
 
-      {/* Main Navigation Sub-Tabs (Dashboard / Member / System Settings) */}
-      <div className="bg-white p-1.5 rounded-2xl border border-slate-200/80 shadow-xs flex flex-wrap sm:flex-nowrap gap-1">
+      {/* Staff Action Feedback Message */}
+      {staffActionMsg && (
+        <div
+          className={`p-4 rounded-2xl border flex items-center justify-between gap-3 animate-in fade-in duration-150 ${
+            staffActionMsg.type === 'success'
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+              : 'bg-rose-50 border-rose-200 text-rose-800'
+          }`}
+        >
+          <div className="flex items-center gap-2.5 text-xs sm:text-sm font-semibold">
+            {staffActionMsg.type === 'success' ? (
+              <CheckCircle2 size={18} className="text-emerald-600 shrink-0" />
+            ) : (
+              <AlertTriangle size={18} className="text-rose-600 shrink-0" />
+            )}
+            <span>{staffActionMsg.text}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setStaffActionMsg(null)}
+            className="text-xs font-bold px-2 py-1 rounded-lg hover:bg-black/5"
+          >
+            ปิด
+          </button>
+        </div>
+      )}
+
+      {/* Main Navigation Sub-Tabs (Dashboard / Staff Requests / Member / System Settings) */}
+      <div className="bg-white p-1.5 rounded-2xl border border-slate-200/80 shadow-xs grid grid-cols-2 md:grid-cols-4 gap-1">
         <button
           id="tab-backend-dashboard"
           type="button"
           onClick={() => setActiveSubTab('dashboard')}
-          className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+          className={`flex items-center justify-center gap-2 py-3 px-3 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
             activeSubTab === 'dashboard'
               ? 'bg-emerald-800 text-white shadow-sm'
               : 'text-slate-600 hover:text-emerald-900 hover:bg-slate-50'
           }`}
         >
-          <BarChart3 size={18} />
-          <span>แดชบอร์ดสถิติหลังบ้าน (Dashboard)</span>
+          <BarChart3 size={17} />
+          <span>แดชบอร์ดสถิติ</span>
           <span
             className={`text-[11px] px-2 py-0.5 rounded-full font-extrabold ${
               activeSubTab === 'dashboard'
@@ -446,22 +673,51 @@ export const BackendSettingsView: React.FC<BackendSettingsViewProps> = ({
                 : 'bg-slate-100 text-slate-600'
             }`}
           >
-            {totalIssues} เรื่อง
+            {totalIssues}
           </span>
+        </button>
+
+        <button
+          id="tab-backend-staff-requests"
+          type="button"
+          onClick={() => setActiveSubTab('staff_requests')}
+          className={`flex items-center justify-center gap-2 py-3 px-3 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+            activeSubTab === 'staff_requests'
+              ? 'bg-sky-900 text-white shadow-sm'
+              : 'text-slate-600 hover:text-sky-900 hover:bg-slate-50'
+          }`}
+        >
+          <ShieldCheck size={17} />
+          <span>คำขอสมัครเจ้าหน้าที่</span>
+          {pendingStaffApps.length > 0 ? (
+            <span className="text-[11px] px-2 py-0.5 rounded-full font-extrabold bg-amber-400 text-slate-950 shadow-xs animate-pulse">
+              {pendingStaffApps.length} รออนุมัติ
+            </span>
+          ) : (
+            <span
+              className={`text-[11px] px-2 py-0.5 rounded-full font-extrabold ${
+                activeSubTab === 'staff_requests'
+                  ? 'bg-sky-800 text-sky-100'
+                  : 'bg-slate-100 text-slate-600'
+              }`}
+            >
+              {staffApps.length}
+            </span>
+          )}
         </button>
 
         <button
           id="tab-backend-members"
           type="button"
           onClick={() => setActiveSubTab('members')}
-          className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+          className={`flex items-center justify-center gap-2 py-3 px-3 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
             activeSubTab === 'members'
               ? 'bg-emerald-800 text-white shadow-sm'
               : 'text-slate-600 hover:text-emerald-900 hover:bg-slate-50'
           }`}
         >
-          <Users size={18} />
-          <span>จัดการสมาชิก & เจ้าหน้าที่ (Member)</span>
+          <Users size={17} />
+          <span>จัดการสมาชิก</span>
           <span
             className={`text-[11px] px-2 py-0.5 rounded-full font-extrabold ${
               activeSubTab === 'members'
@@ -469,7 +725,7 @@ export const BackendSettingsView: React.FC<BackendSettingsViewProps> = ({
                 : 'bg-slate-100 text-slate-600'
             }`}
           >
-            {totalUsersCount} คน
+            {totalUsersCount}
           </span>
         </button>
 
@@ -477,14 +733,14 @@ export const BackendSettingsView: React.FC<BackendSettingsViewProps> = ({
           id="tab-backend-settings"
           type="button"
           onClick={() => setActiveSubTab('settings')}
-          className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+          className={`flex items-center justify-center gap-2 py-3 px-3 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
             activeSubTab === 'settings'
               ? 'bg-emerald-800 text-white shadow-sm'
               : 'text-slate-600 hover:text-emerald-900 hover:bg-slate-50'
           }`}
         >
-          <Settings size={18} />
-          <span>ตั้งค่าระบบหลังบ้าน (Settings)</span>
+          <Settings size={17} />
+          <span>ตั้งค่าระบบหลังบ้าน</span>
         </button>
       </div>
 
@@ -555,6 +811,173 @@ export const BackendSettingsView: React.FC<BackendSettingsViewProps> = ({
                 <span>ต้องเร่งตรวจสอบภายใน 24 ชม.</span>
               </div>
             </div>
+          </div>
+
+          {/* ========================================================================= */}
+          {/* DASHBOARD SECTION: STAFF APPLICATIONS (User Requirement 8) */}
+          {/* ========================================================================= */}
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xs overflow-hidden">
+            <div className="px-6 py-4.5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-gradient-to-r from-slate-50/80 via-white to-sky-50/30">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-sky-100 text-sky-800 flex items-center justify-center font-bold shadow-xs">
+                  <ShieldCheck size={20} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base font-bold text-slate-900">
+                      คำขอสมัครเจ้าหน้าที่ (Staff Applications)
+                    </h3>
+                    {pendingStaffApps.length > 0 ? (
+                      <span className="px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-amber-100 text-amber-900 border border-amber-300 animate-pulse">
+                        {pendingStaffApps.length} รออนุมัติ
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                        พร้อมใช้งาน
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    รายการคำขอลงทะเบียนของแอดมินและเจ้าหน้าที่ปฏิบัติการที่รอการตรวจสอบสิทธิ์
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={loadStaffApps}
+                  disabled={isLoadingStaffApps}
+                  className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+                  title="รีเฟรชคำขอ"
+                >
+                  <RefreshCw size={15} className={isLoadingStaffApps ? 'animate-spin' : ''} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveSubTab('staff_requests')}
+                  className="px-3.5 py-2 text-xs font-bold rounded-xl bg-sky-50 text-sky-800 border border-sky-200/80 hover:bg-sky-100 transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                >
+                  <span>จัดการคำขอทั้งหมด ({staffApps.length})</span>
+                  <ArrowRight size={14} />
+                </button>
+              </div>
+            </div>
+
+            {/* Content List */}
+            {isLoadingStaffApps ? (
+              <div className="p-8 text-center text-slate-500 text-xs flex items-center justify-center gap-2">
+                <RefreshCw size={16} className="animate-spin text-sky-600" />
+                <span>กำลังโหลดรายการคำขอสมัคร...</span>
+              </div>
+            ) : pendingStaffApps.length === 0 ? (
+              <div className="p-8 text-center space-y-2">
+                <div className="w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto">
+                  <CheckCircle2 size={24} />
+                </div>
+                <p className="text-sm font-bold text-slate-800">ไม่มีคำขอสมัครเจ้าหน้าที่ค้างตรวจสอบ</p>
+                <p className="text-xs text-slate-500 max-w-md mx-auto">
+                  เจ้าหน้าที่และแอดมินทุกคนได้รับการตรวจสอบสิทธิ์เรียบร้อยแล้ว หากมีเจ้าหน้าที่สมัครใหม่เข้ามา รายชื่อจะปรากฏที่นี่ทันที
+                </p>
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-100">
+                {pendingStaffApps.slice(0, 5).map((app) => {
+                  const isProcessing = staffActionLoadingId === app.id;
+                  return (
+                    <div
+                      key={app.id}
+                      className="p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-slate-50/80 transition-colors"
+                    >
+                      <div className="flex items-start sm:items-center gap-3.5 min-w-0">
+                        <div className="w-11 h-11 rounded-2xl bg-sky-900 text-white flex items-center justify-center font-bold text-sm shrink-0 shadow-xs">
+                          {app.name.charAt(0) || 'จ'}
+                        </div>
+                        <div className="min-w-0 space-y-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-sm font-bold text-slate-900 truncate">
+                              {app.name}
+                            </span>
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-100 text-amber-800 border border-amber-200 flex items-center gap-1">
+                              <Clock size={11} />
+                              รอตรวจสอบ (Pending)
+                            </span>
+                            <span className="text-[11px] text-slate-400">
+                              {app.createdAt ? new Date(app.createdAt).toLocaleDateString('th-TH') : 'วันนี้'}
+                            </span>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-600">
+                            <span className="flex items-center gap-1 font-medium text-slate-800">
+                              <Building2 size={13} className="text-slate-400" />
+                              {app.department || 'ไม่ระบุหน่วยงาน'}
+                            </span>
+                            <span className="flex items-center gap-1 text-slate-500">
+                              <Briefcase size={13} className="text-slate-400" />
+                              {app.position || 'เจ้าหน้าที่'}
+                            </span>
+                            <span className="flex items-center gap-1 font-mono text-[11px] bg-slate-100 px-2 py-0.5 rounded-md text-slate-700">
+                              <Key size={11} className="text-slate-400" />
+                              รหัส: {app.inviteCode || '-'}
+                            </span>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-400">
+                            <span className="flex items-center gap-1">
+                              <Mail size={12} />
+                              {app.email}
+                            </span>
+                            {app.phone && (
+                              <span className="flex items-center gap-1">
+                                <Phone size={12} />
+                                {app.phone}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Action buttons */}
+                      <div className="flex items-center gap-2 shrink-0 self-end md:self-center">
+                        {isSuperAdmin ? (
+                          <>
+                            <button
+                              id={`btn-reject-app-${app.id}`}
+                              type="button"
+                              disabled={isProcessing}
+                              onClick={() => handleOpenRejectModal(app)}
+                              className="px-3.5 py-2 text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl transition-all cursor-pointer flex items-center gap-1.5 active:scale-95 disabled:opacity-50"
+                            >
+                              <X size={14} />
+                              <span>ปฏิเสธ</span>
+                            </button>
+
+                            <button
+                              id={`btn-approve-app-${app.id}`}
+                              type="button"
+                              disabled={isProcessing}
+                              onClick={() => handleApproveStaff(app)}
+                              className="px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-xs transition-all cursor-pointer flex items-center gap-1.5 active:scale-95 disabled:opacity-50"
+                            >
+                              {isProcessing ? (
+                                <RefreshCw size={14} className="animate-spin" />
+                              ) : (
+                                <Check size={14} />
+                              )}
+                              <span>{isProcessing ? 'กำลังอนุมัติ...' : 'อนุมัติ'}</span>
+                            </button>
+                          </>
+                        ) : (
+                          <span className="text-[11px] font-semibold text-slate-400 bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200">
+                            เฉพาะ Super Admin ที่มีสิทธิ์อนุมัติ
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* Charts Row: Monthly Trend & Sub-district Distribution */}
@@ -760,7 +1183,380 @@ export const BackendSettingsView: React.FC<BackendSettingsViewProps> = ({
       )}
 
       {/* ========================================================================= */}
-      {/* 2. MEMBER MANAGEMENT SUB-TAB */}
+      {/* 2. STAFF APPLICATION REQUESTS SUB-TAB (SUPER ADMIN WORKFLOW) */}
+      {/* ========================================================================= */}
+      {activeSubTab === 'staff_requests' && (
+        <div className="space-y-6 animate-in fade-in duration-200">
+          {/* Header Banner & Super Admin Status */}
+          <div className="bg-gradient-to-r from-sky-950 via-slate-900 to-sky-950 text-white p-6 rounded-3xl border border-sky-800 shadow-md flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-2">
+                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-sky-500/20 text-sky-300 border border-sky-400/30 flex items-center gap-1.5">
+                  <ShieldCheck size={14} />
+                  <span>ระบบตรวจสอบและอนุมัติเจ้าหน้าที่ (Staff Verification)</span>
+                </span>
+                {isSuperAdmin ? (
+                  <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-400/40 flex items-center gap-1">
+                    <Sparkles size={13} />
+                    สิทธิ์ Super Admin
+                  </span>
+                ) : (
+                  <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-700/60 text-slate-300 border border-slate-600">
+                    โหมดตรวจสอบข้อมูล (Read-Only)
+                  </span>
+                )}
+              </div>
+              <h2 className="text-xl font-bold text-white">คำขอสมัครบัญชีแอดมินและเจ้าหน้าที่ อปท.</h2>
+              <p className="text-xs text-slate-300 max-w-2xl leading-relaxed">
+                ตามนโยบายความปลอดภัยของระบบ ผู้สมัครเป็นเจ้าหน้าที่ทุกคนต้องได้รับการตรวจสอบสังกัดและรหัสยืนยัน
+                โดยเฉพาะ <strong>Super Admin</strong> เท่านั้นที่มีสิทธิ์กดอนุมัติหรือปฏิเสธคำขอ
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 self-start md:self-center">
+              <button
+                type="button"
+                onClick={loadStaffApps}
+                disabled={isLoadingStaffApps}
+                className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white font-medium text-xs border border-white/20 transition-all flex items-center gap-2 cursor-pointer"
+              >
+                <RefreshCw size={14} className={isLoadingStaffApps ? 'animate-spin' : ''} />
+                <span>รีเฟรชข้อมูล</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Metric Summary Cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 sm:gap-4">
+            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
+              <span className="text-xs text-slate-500 font-medium">คำขอทั้งหมด</span>
+              <p className="text-2xl font-black text-slate-900 font-mono mt-1">{staffApps.length}</p>
+              <span className="text-[11px] text-slate-400">รายการในระบบ</span>
+            </div>
+
+            <div className="bg-white p-4 rounded-2xl border border-amber-200 bg-amber-50/20 shadow-2xs">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-amber-800 font-semibold">รอการอนุมัติ</span>
+                {pendingStaffApps.length > 0 && (
+                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-ping" />
+                )}
+              </div>
+              <p className="text-2xl font-black text-amber-600 font-mono mt-1">
+                {pendingStaffApps.length}
+              </p>
+              <span className="text-[11px] text-amber-700">ต้องเร่งตรวจสอบ</span>
+            </div>
+
+            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
+              <span className="text-xs text-emerald-800 font-medium">อนุมัติแล้ว</span>
+              <p className="text-2xl font-black text-emerald-600 font-mono mt-1">
+                {staffApps.filter((a) => a.status === 'active').length}
+              </p>
+              <span className="text-[11px] text-emerald-700">พร้อมปฏิบัติหน้าที่</span>
+            </div>
+
+            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
+              <span className="text-xs text-rose-800 font-medium">ปฏิเสธคำขอ</span>
+              <p className="text-2xl font-black text-rose-600 font-mono mt-1">
+                {staffApps.filter((a) => a.status === 'rejected').length}
+              </p>
+              <span className="text-[11px] text-rose-700">ไม่ผ่านการตรวจสอบ</span>
+            </div>
+
+            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
+              <span className="text-xs text-slate-600 font-medium">ถูกระงับชั่วคราว</span>
+              <p className="text-2xl font-black text-slate-700 font-mono mt-1">
+                {staffApps.filter((a) => a.status === 'suspended').length}
+              </p>
+              <span className="text-[11px] text-slate-500">ระงับการใช้งาน</span>
+            </div>
+          </div>
+
+          {/* Filter Chips & Search Bar */}
+          <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            {/* Status Filter Chips */}
+            <div className="flex flex-wrap items-center gap-1.5">
+              {[
+                { key: 'all', label: 'ทั้งหมด', count: staffApps.length },
+                { key: 'pending', label: 'รอตรวจสอบ', count: pendingStaffApps.length },
+                {
+                  key: 'active',
+                  label: 'อนุมัติแล้ว',
+                  count: staffApps.filter((a) => a.status === 'active').length,
+                },
+                {
+                  key: 'rejected',
+                  label: 'ปฏิเสธแล้ว',
+                  count: staffApps.filter((a) => a.status === 'rejected').length,
+                },
+                {
+                  key: 'suspended',
+                  label: 'ระงับบัญชี',
+                  count: staffApps.filter((a) => a.status === 'suspended').length,
+                },
+              ].map((f) => (
+                <button
+                  key={f.key}
+                  type="button"
+                  onClick={() => setStaffTabFilter(f.key as any)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                    staffTabFilter === f.key
+                      ? 'bg-sky-900 text-white shadow-xs'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  <span>{f.label}</span>
+                  <span
+                    className={`text-[10px] px-1.5 py-0.2 rounded-full ${
+                      staffTabFilter === f.key ? 'bg-sky-800 text-sky-200' : 'bg-white text-slate-600'
+                    }`}
+                  >
+                    {f.count}
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            {/* Search Input */}
+            <div className="relative w-full sm:w-72">
+              <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                value={staffSearchQuery}
+                onChange={(e) => setStaffSearchQuery(e.target.value)}
+                placeholder="ค้นหาชื่อ, อีเมล, หน่วยงาน, รหัส..."
+                className="w-full pl-9 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-600"
+              />
+              {staffSearchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setStaffSearchQuery('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                >
+                  <X size={13} />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Applications List */}
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xs overflow-hidden">
+            {isLoadingStaffApps ? (
+              <div className="p-12 text-center text-slate-500 text-sm flex items-center justify-center gap-2">
+                <RefreshCw size={18} className="animate-spin text-sky-600" />
+                <span>กำลังโหลดข้อมูลคำขอ...</span>
+              </div>
+            ) : filteredStaffApps.length === 0 ? (
+              <div className="p-12 text-center space-y-2">
+                <div className="w-12 h-12 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mx-auto">
+                  <Search size={22} />
+                </div>
+                <h4 className="text-sm font-bold text-slate-800">ไม่พบคำขอตามเงื่อนไขที่เลือก</h4>
+                <p className="text-xs text-slate-500">
+                  {staffSearchQuery
+                    ? `ไม่พบข้อมูลที่ตรงกับ "${staffSearchQuery}"`
+                    : 'ไม่มีรายการในหมวดหมู่นี้ในปัจจุบัน'}
+                </p>
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-100">
+                {filteredStaffApps.map((app) => {
+                  const isProcessing = staffActionLoadingId === app.id;
+                  const isPending = app.role === 'staff_pending' || app.status === 'pending';
+                  const isActive = app.status === 'active';
+                  const isRejected = app.status === 'rejected';
+                  const isSuspended = app.status === 'suspended';
+
+                  return (
+                    <div
+                      key={app.id}
+                      className="p-5 sm:p-6 hover:bg-slate-50/70 transition-colors space-y-4"
+                    >
+                      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                        {/* Candidate Identity */}
+                        <div className="flex items-start gap-4 min-w-0">
+                          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-sky-800 to-slate-900 text-white flex items-center justify-center font-bold text-base shrink-0 shadow-xs">
+                            {app.name.charAt(0) || 'จ'}
+                          </div>
+
+                          <div className="space-y-1 min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h4 className="text-sm sm:text-base font-bold text-slate-900">
+                                {app.name}
+                              </h4>
+
+                              {/* Status Badge */}
+                              {isPending && (
+                                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-200 flex items-center gap-1">
+                                  <Clock size={12} />
+                                  <span>รอตรวจสอบ (Pending)</span>
+                                </span>
+                              )}
+                              {isActive && (
+                                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1">
+                                  <CheckCircle2 size={12} />
+                                  <span>อนุมัติแล้ว (Active)</span>
+                                </span>
+                              )}
+                              {isRejected && (
+                                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-rose-100 text-rose-800 border border-rose-200 flex items-center gap-1">
+                                  <X size={12} />
+                                  <span>ปฏิเสธ (Rejected)</span>
+                                </span>
+                              )}
+                              {isSuspended && (
+                                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-slate-200 text-slate-700 border border-slate-300 flex items-center gap-1">
+                                  <Ban size={12} />
+                                  <span>ถูกระงับ (Suspended)</span>
+                                </span>
+                              )}
+
+                              {/* Role Pill */}
+                              <span className="text-[11px] px-2 py-0.5 bg-slate-100 text-slate-700 rounded-md font-medium">
+                                Role: {app.role}
+                              </span>
+
+                              <span className="text-[11px] text-slate-400">
+                                {app.createdAt
+                                  ? new Date(app.createdAt).toLocaleString('th-TH', {
+                                      dateStyle: 'medium',
+                                      timeStyle: 'short',
+                                    })
+                                  : 'ไม่ระบุวันเวลา'}
+                              </span>
+                            </div>
+
+                            {/* Organization & Department info */}
+                            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-600 pt-0.5">
+                              <span className="flex items-center gap-1.5 font-medium text-slate-800">
+                                <Building2 size={14} className="text-slate-400" />
+                                {app.department || 'ไม่ระบุหน่วยงาน'}
+                              </span>
+                              <span className="flex items-center gap-1.5 text-slate-600">
+                                <Briefcase size={14} className="text-slate-400" />
+                                {app.position || 'เจ้าหน้าที่'}
+                              </span>
+                              <span className="flex items-center gap-1.5 font-mono text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200">
+                                <Key size={12} className="text-amber-600" />
+                                รหัสเชิญ: {app.inviteCode || '-'}
+                              </span>
+                            </div>
+
+                            {/* Contact Details */}
+                            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 pt-0.5">
+                              <span className="flex items-center gap-1.5">
+                                <Mail size={13} className="text-slate-400" />
+                                {app.email}
+                              </span>
+                              {app.phone && (
+                                <span className="flex items-center gap-1.5">
+                                  <Phone size={13} className="text-slate-400" />
+                                  {app.phone}
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Rejection / Note message */}
+                            {app.notes && (
+                              <div className="mt-2 text-xs p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-700">
+                                <span className="font-semibold text-slate-900">หมายเหตุ: </span>
+                                {app.notes}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Action Buttons (Super Admin only) */}
+                        <div className="flex items-center gap-2 shrink-0 self-end lg:self-center">
+                          {isSuperAdmin ? (
+                            <>
+                              {isPending && (
+                                <>
+                                  <button
+                                    id={`btn-table-reject-${app.id}`}
+                                    type="button"
+                                    disabled={isProcessing}
+                                    onClick={() => handleOpenRejectModal(app)}
+                                    className="px-3.5 py-2 text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl transition-all cursor-pointer flex items-center gap-1.5 active:scale-95 disabled:opacity-50"
+                                  >
+                                    <X size={14} />
+                                    <span>ปฏิเสธคำขอ</span>
+                                  </button>
+
+                                  <button
+                                    id={`btn-table-approve-${app.id}`}
+                                    type="button"
+                                    disabled={isProcessing}
+                                    onClick={() => handleApproveStaff(app)}
+                                    className="px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-xs transition-all cursor-pointer flex items-center gap-1.5 active:scale-95 disabled:opacity-50"
+                                  >
+                                    {isProcessing ? (
+                                      <RefreshCw size={14} className="animate-spin" />
+                                    ) : (
+                                      <Check size={14} />
+                                    )}
+                                    <span>{isProcessing ? 'กำลังอนุมัติ...' : 'อนุมัติบัญชี'}</span>
+                                  </button>
+                                </>
+                              )}
+
+                              {isActive && (
+                                <button
+                                  id={`btn-table-suspend-${app.id}`}
+                                  type="button"
+                                  disabled={isProcessing}
+                                  onClick={() => handleSuspendStaff(app)}
+                                  className="px-3.5 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-200 border border-slate-200 rounded-xl transition-all cursor-pointer flex items-center gap-1.5"
+                                >
+                                  <Ban size={14} />
+                                  <span>ระงับบัญชีชั่วคราว</span>
+                                </button>
+                              )}
+
+                              {isSuspended && (
+                                <button
+                                  id={`btn-table-reactivate-${app.id}`}
+                                  type="button"
+                                  disabled={isProcessing}
+                                  onClick={() => handleReactivateStaff(app)}
+                                  className="px-3.5 py-2 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-xl transition-all cursor-pointer flex items-center gap-1.5"
+                                >
+                                  <CheckCircle2 size={14} />
+                                  <span>คืนสิทธิ์การใช้งาน</span>
+                                </button>
+                              )}
+
+                              {isRejected && (
+                                <button
+                                  id={`btn-table-reapprove-${app.id}`}
+                                  type="button"
+                                  disabled={isProcessing}
+                                  onClick={() => handleApproveStaff(app)}
+                                  className="px-3.5 py-2 text-xs font-bold text-sky-800 bg-sky-50 hover:bg-sky-100 border border-sky-200 rounded-xl transition-all cursor-pointer flex items-center gap-1.5"
+                                >
+                                  <Check size={14} />
+                                  <span>ทบทวนและอนุมัติใหม่</span>
+                                </button>
+                              )}
+                            </>
+                          ) : (
+                            <span className="text-[11px] font-semibold text-slate-400 bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200">
+                              เฉพาะ Super Admin
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 3. MEMBER MANAGEMENT SUB-TAB */}
       {/* ========================================================================= */}
       {activeSubTab === 'members' && (
         <div className="space-y-6 animate-in fade-in duration-200">
@@ -1560,6 +2356,119 @@ export const BackendSettingsView: React.FC<BackendSettingsViewProps> = ({
                 className="flex-1 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer"
               >
                 ลบข้อมูลทันที
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL: REJECT STAFF APPLICATION MODAL */}
+      {/* ========================================================================= */}
+      {rejectModalApp && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex items-center gap-3 border-b border-slate-100 pb-3">
+              <div className="w-10 h-10 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
+                <AlertTriangle size={20} />
+              </div>
+              <div>
+                <h4 className="text-base font-bold text-slate-900">ปฏิเสธคำขอสมัครเจ้าหน้าที่</h4>
+                <p className="text-xs text-slate-500">บันทึกเหตุผลการไม่อนุมัติสิทธิ์เข้าใช้งาน</p>
+              </div>
+            </div>
+
+            {/* Candidate Summary Box */}
+            <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 text-xs space-y-1">
+              <div className="flex justify-between">
+                <span className="text-slate-500">ผู้สมัคร:</span>
+                <span className="font-bold text-slate-800">{rejectModalApp.name}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">หน่วยงาน:</span>
+                <span className="font-medium text-slate-700">{rejectModalApp.department || '-'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">ตำแหน่ง:</span>
+                <span className="font-medium text-slate-700">{rejectModalApp.position || 'เจ้าหน้าที่'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">รหัสเชิญที่ระบุ:</span>
+                <span className="font-mono text-amber-700 font-bold">{rejectModalApp.inviteCode || '-'}</span>
+              </div>
+            </div>
+
+            {/* Reason Selection */}
+            <div className="space-y-2">
+              <label className="block text-xs font-bold text-slate-700">
+                เลือกเหตุผลในการปฏิเสธคำขอ:
+              </label>
+              <div className="space-y-1.5 text-xs">
+                {[
+                  'รหัสหน่วยงานหรือรหัสเชิญไม่ถูกต้อง',
+                  'ไม่พบข้อมูลการปฏิบัติหน้าที่ในสังกัด อปท. อำเภอปราสาท',
+                  'ข้อมูลการติดต่อ (อีเมลหรือเบอร์โทรศัพท์) ไม่สามารถติดต่อยืนยันตัวตนได้',
+                  'custom',
+                ].map((reason) => {
+                  const isCustom = reason === 'custom';
+                  const label = isCustom ? 'ระบุเหตุผลอื่น ๆ...' : reason;
+                  const isChecked = rejectReason === reason;
+                  return (
+                    <label
+                      key={reason}
+                      className={`flex items-start gap-2.5 p-2.5 rounded-xl border cursor-pointer transition-all ${
+                        isChecked
+                          ? 'border-rose-400 bg-rose-50/50 text-rose-900 font-medium'
+                          : 'border-slate-200 hover:bg-slate-50 text-slate-700'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="rejectReasonRadio"
+                        checked={isChecked}
+                        onChange={() => setRejectReason(reason)}
+                        className="mt-0.5 text-rose-600 focus:ring-rose-500"
+                      />
+                      <span>{label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+
+              {rejectReason === 'custom' && (
+                <div className="pt-1">
+                  <textarea
+                    rows={2}
+                    value={rejectCustomReason}
+                    onChange={(e) => setRejectCustomReason(e.target.value)}
+                    placeholder="พิมพ์เหตุผลการปฏิเสธที่นี่..."
+                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-rose-500"
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 pt-2">
+              <button
+                type="button"
+                disabled={staffActionLoadingId === rejectModalApp.id}
+                onClick={() => setRejectModalApp(null)}
+                className="flex-1 py-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                disabled={staffActionLoadingId === rejectModalApp.id}
+                onClick={handleConfirmReject}
+                className="flex-1 py-2.5 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5"
+              >
+                {staffActionLoadingId === rejectModalApp.id ? (
+                  <RefreshCw size={14} className="animate-spin" />
+                ) : (
+                  <X size={14} />
+                )}
+                <span>ยืนยันการปฏิเสธ</span>
               </button>
             </div>
           </div>

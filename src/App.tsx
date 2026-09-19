@@ -32,6 +32,7 @@ import { BackendSettingsView } from './components/BackendSettingsView';
 import { IssueDetailModal } from './components/IssueDetailModal';
 import { TicketStatusModal } from './components/TicketStatusModal';
 import { LoginView } from './components/LoginView';
+import AdminLoginView from './components/AdminLoginView';
 import { ProfileModal } from './components/ProfileModal';
 import { SqlExportModal } from './components/SqlExportModal';
 import { ToastContainer, ToastMessage } from './components/Toast';
@@ -78,6 +79,34 @@ export default function App() {
   const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
   const [isSqlModalOpen, setIsSqlModalOpen] = useState(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const [isAdminRoute, setIsAdminRoute] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return (
+        window.location.hash === '#admin' ||
+        window.location.search.includes('admin') ||
+        window.location.pathname.endsWith('/admin')
+      );
+    }
+    return false;
+  });
+
+  // Listen for admin URL hash/route changes
+  useEffect(() => {
+    const handleUrlChange = () => {
+      const isAdm =
+        window.location.hash === '#admin' ||
+        window.location.search.includes('admin') ||
+        window.location.pathname.endsWith('/admin');
+      setIsAdminRoute(isAdm);
+    };
+
+    window.addEventListener('hashchange', handleUrlChange);
+    window.addEventListener('popstate', handleUrlChange);
+    return () => {
+      window.removeEventListener('hashchange', handleUrlChange);
+      window.removeEventListener('popstate', handleUrlChange);
+    };
+  }, []);
 
   // Real-time synchronization with Cloud Firestore
   useEffect(() => {
@@ -129,17 +158,31 @@ export default function App() {
     };
   }, []);
 
-  // Enforce role separation: citizen must not access officer views
+  // Enforce role separation: citizen & pending staff must not access officer or backend views (Requirement 9)
   useEffect(() => {
-    if (currentUser.role === 'citizen' && currentTab === 'officer') {
+    const isRestrictedRole =
+      currentUser.role === 'citizen' ||
+      currentUser.role === 'staff_pending' ||
+      currentUser.status === 'pending' ||
+      currentUser.status === 'suspended';
+
+    const isOfficerOrAdminView =
+      currentTab === 'officer' ||
+      currentTab === 'dashboard' ||
+      currentTab === 'backend_settings';
+
+    if (isRestrictedRole && isOfficerOrAdminView) {
       setCurrentTab('home');
-      addToast(
-        'error',
-        'สงวนสิทธิ์เฉพาะเจ้าหน้าที่',
-        'ห้ามประชาชนเข้าถึง Dashboard และข้อมูลการจัดการของเจ้าหน้าที่'
-      );
+      const reasonMsg =
+        currentUser.role === 'staff_pending' || currentUser.status === 'pending'
+          ? 'บัญชีเจ้าหน้าที่ของคุณอยู่ระหว่างรอการตรวจสอบและอนุมัติจาก Super Admin'
+          : currentUser.status === 'suspended'
+          ? 'บัญชีผู้ใช้งานนี้ถูกระงับการเข้าถึงระบบชั่วคราว'
+          : 'สงวนสิทธิ์เฉพาะเจ้าหน้าที่อปท.และผู้ดูแลระบบที่ได้รับอนุญาตเท่านั้น';
+
+      addToast('error', 'ไม่มีสิทธิ์เข้าถึงหน้านี้', reasonMsg);
     }
-  }, [currentUser.role, currentTab]);
+  }, [currentUser.role, currentUser.status, currentTab]);
 
   // Sync state to localStorage
   useEffect(() => {
@@ -499,24 +542,55 @@ export default function App() {
     setIsStatusModalOpen(true);
   };
 
-  // If user is not logged in, show Login & Registration screen
+  // If user is not logged in, show Citizen Login or Admin Login screen based on route
   if (!isLoggedIn) {
+    if (isAdminRoute) {
+      return (
+        <div className="min-h-screen flex flex-col bg-slate-900 text-slate-800 font-sans">
+          <ToastContainer toasts={toasts} onDismiss={removeToast} />
+          <AdminLoginView
+            isDbConnected={isDbConnected}
+            onBackToCitizen={() => {
+              if (typeof window !== 'undefined') {
+                window.location.hash = '';
+              }
+              setIsAdminRoute(false);
+            }}
+            onLoginSuccess={(user, role, rememberMe) => {
+              setIsLoggedIn(true);
+              saveStoredIsLoggedIn(rememberMe !== false);
+              setCurrentUser(user);
+              saveStoredCurrentUser(user);
+              if (user.role === 'super_admin' || user.email === '28970@pwk.ac.th') {
+                setCurrentTab('dashboard');
+              } else {
+                setCurrentTab('officer');
+              }
+              addToast('success', 'เข้าสู่ระบบแอดมินสำเร็จ', `ยินดีต้อนรับ ${user.name}`);
+            }}
+          />
+        </div>
+      );
+    }
+
     return (
       <div className="min-h-screen flex flex-col bg-slate-50 text-slate-800 font-sans">
         <ToastContainer toasts={toasts} onDismiss={removeToast} />
         <LoginView
           users={allUsers}
           isDbConnected={isDbConnected}
+          onNavigateToAdmin={() => {
+            if (typeof window !== 'undefined') {
+              window.location.hash = '#admin';
+            }
+            setIsAdminRoute(true);
+          }}
           onLoginSuccess={(user, role, rememberMe) => {
             setIsLoggedIn(true);
             saveStoredIsLoggedIn(rememberMe !== false);
             setCurrentUser(user);
             saveStoredCurrentUser(user);
-            if (role === 'officer') {
-              setCurrentTab('officer');
-            } else {
-              setCurrentTab('home');
-            }
+            setCurrentTab('home');
             addToast('success', 'เข้าสู่ระบบสำเร็จ', `ยินดีต้อนรับ ${user.name}`);
           }}
           onRegisterSuccess={async (newUser, rememberMe) => {

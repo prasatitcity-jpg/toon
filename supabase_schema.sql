@@ -17,19 +17,22 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- 1. Profiles Table (Linked to auth.users)
--- Strict Role Control: citizen (ประชาชน) and staff (เจ้าหน้าที่) only
+-- Strict Role Control: citizen (ประชาชน), staff_pending (รออนุมัติ), staff (เจ้าหน้าที่), super_admin (ผู้ดูแลระบบสูงสุด)
 CREATE TABLE IF NOT EXISTS public.profiles (
     user_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     email TEXT UNIQUE NOT NULL,
     phone TEXT,
-    role TEXT NOT NULL DEFAULT 'citizen' CHECK (role IN ('citizen', 'staff')),
+    role TEXT NOT NULL DEFAULT 'citizen' CHECK (role IN ('citizen', 'staff_pending', 'staff', 'super_admin')),
     sub_district TEXT,
     village TEXT,
     address TEXT,
     department TEXT,
+    position TEXT,
+    invite_code TEXT,
     avatar TEXT,
-    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'suspended')),
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'pending', 'rejected', 'suspended')),
+    notes TEXT,
     last_seen TIMESTAMPTZ DEFAULT timezone('utc'::text, now()),
     created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL,
     updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
@@ -134,14 +137,27 @@ CREATE INDEX IF NOT EXISTS idx_notifications_is_read ON public.notifications(is_
 -- Security Definer Functions (Role Checking & Privacy Protection)
 -- ====================================================================
 
--- Check if current authenticated user is a verified staff member from the database
+-- Check if current authenticated user is a verified staff or super admin
 CREATE OR REPLACE FUNCTION public.is_staff()
 RETURNS BOOLEAN AS $$
 BEGIN
     RETURN EXISTS (
         SELECT 1 FROM public.profiles
         WHERE user_id = auth.uid()
-          AND role = 'staff'
+          AND (role IN ('staff', 'super_admin'))
+          AND status = 'active'
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Check if current authenticated user is a super admin
+CREATE OR REPLACE FUNCTION public.is_super_admin()
+RETURNS BOOLEAN AS $$
+BEGIN
+    RETURN EXISTS (
+        SELECT 1 FROM public.profiles
+        WHERE user_id = auth.uid()
+          AND role = 'super_admin'
           AND status = 'active'
     );
 END;
@@ -158,7 +174,7 @@ BEGIN
     RETURN QUERY
     SELECT
         COUNT(CASE WHEN role = 'citizen' THEN 1 END) AS online_citizens,
-        COUNT(CASE WHEN role = 'staff' THEN 1 END) AS online_staff,
+        COUNT(CASE WHEN role IN ('staff', 'super_admin') THEN 1 END) AS online_staff,
         COUNT(1) AS total_active
     FROM public.profiles
     WHERE last_seen >= (timezone('utc'::text, now()) - INTERVAL '5 minutes')
@@ -167,33 +183,71 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Automatic Profile Creation Trigger on Supabase Auth Sign Up
--- STRICT RULE: All self-registered users are ALWAYS assigned role = 'citizen'
+-- STRICT RULE:
+-- If portal = 'staff': role is ALWAYS 'staff_pending' and status is 'pending'. NEVER 'staff' or 'super_admin'.
+-- If portal = 'citizen': role is ALWAYS 'citizen' and status is 'active'.
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
+DECLARE
+    requested_portal TEXT;
 BEGIN
-    INSERT INTO public.profiles (
-        user_id,
-        name,
-        email,
-        phone,
-        role,
-        sub_district,
-        village,
-        status,
-        last_seen
-    )
-    VALUES (
-        NEW.id,
-        COALESCE(NEW.raw_user_meta_data->>'name', 'ประชาชน อ.ปราสาท'),
-        NEW.email,
-        COALESCE(NEW.raw_user_meta_data->>'phone', ''),
-        'citizen', -- Always citizen. Never staff.
-        COALESCE(NEW.raw_user_meta_data->>'sub_district', 'กังแอน'),
-        COALESCE(NEW.raw_user_meta_data->>'village', ''),
-        'active',
-        timezone('utc'::text, now())
-    )
-    ON CONFLICT (user_id) DO NOTHING;
+    requested_portal := COALESCE(NEW.raw_user_meta_data->>'portal', 'citizen');
+
+    IF requested_portal = 'staff' THEN
+        INSERT INTO public.profiles (
+            user_id,
+            name,
+            email,
+            phone,
+            role,
+            status,
+            department,
+            position,
+            invite_code,
+            sub_district,
+            village,
+            last_seen
+        )
+        VALUES (
+            NEW.id,
+            COALESCE(NEW.raw_user_meta_data->>'name', 'ผู้สมัครเจ้าหน้าที่'),
+            NEW.email,
+            COALESCE(NEW.raw_user_meta_data->>'phone', ''),
+            'staff_pending', -- STRICT: Always staff_pending, NEVER staff or super_admin!
+            'pending',       -- STRICT: Always pending approval!
+            COALESCE(NEW.raw_user_meta_data->>'department', 'ศูนย์บริการร่วม อ.ปราสาท'),
+            COALESCE(NEW.raw_user_meta_data->>'position', 'เจ้าหน้าที่ปฏิบัติการ'),
+            COALESCE(NEW.raw_user_meta_data->>'invite_code', ''),
+            COALESCE(NEW.raw_user_meta_data->>'sub_district', 'กังแอน'),
+            COALESCE(NEW.raw_user_meta_data->>'village', ''),
+            timezone('utc'::text, now())
+        )
+        ON CONFLICT (user_id) DO NOTHING;
+    ELSE
+        INSERT INTO public.profiles (
+            user_id,
+            name,
+            email,
+            phone,
+            role,
+            status,
+            sub_district,
+            village,
+            last_seen
+        )
+        VALUES (
+            NEW.id,
+            COALESCE(NEW.raw_user_meta_data->>'name', 'ประชาชน อ.ปราสาท'),
+            NEW.email,
+            COALESCE(NEW.raw_user_meta_data->>'phone', ''),
+            'citizen', -- STRICT: Always citizen!
+            'active',
+            COALESCE(NEW.raw_user_meta_data->>'sub_district', 'กังแอน'),
+            COALESCE(NEW.raw_user_meta_data->>'village', ''),
+            timezone('utc'::text, now())
+        )
+        ON CONFLICT (user_id) DO NOTHING;
+    END IF;
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
@@ -221,13 +275,14 @@ CREATE POLICY "profiles_select_policy"
     USING (
         auth.uid() = user_id
         OR public.is_staff()
+        OR public.is_super_admin()
     );
 
 CREATE POLICY "profiles_insert_policy"
     ON public.profiles FOR INSERT
     WITH CHECK (
         auth.uid() = user_id
-        AND role = 'citizen'
+        AND role IN ('citizen', 'staff_pending')
     );
 
 CREATE POLICY "profiles_update_own"
@@ -237,6 +292,12 @@ CREATE POLICY "profiles_update_own"
         auth.uid() = user_id
         AND (role = (SELECT p.role FROM public.profiles p WHERE p.user_id = auth.uid()))
     );
+
+-- Super Admin can approve, reject, or suspend any profile
+CREATE POLICY "profiles_super_admin_manage"
+    ON public.profiles FOR UPDATE
+    USING (public.is_super_admin())
+    WITH CHECK (public.is_super_admin());
 
 -- --------------------------------------------------------------------
 -- REPORTS POLICIES

@@ -67,7 +67,8 @@ export interface Issue {
   timeline: TimelineEvent[];
 }
 
-export type UserRole = 'citizen' | 'staff';
+export type UserRole = 'citizen' | 'staff_pending' | 'staff' | 'super_admin';
+export type UserStatus = 'active' | 'pending' | 'rejected' | 'suspended';
 
 export interface User {
   id: string;
@@ -76,18 +77,22 @@ export interface User {
   password?: string;
   email: string;
   phone: string;
-  role: UserRole | 'officer' | 'admin'; // 'officer'/'admin' normalized to 'staff'
+  role: UserRole | 'officer' | 'admin'; // 'officer' normalized to 'staff', 'admin' to 'super_admin'
   subDistrict?: string;
   village?: string;
   address?: string;
   department?: string;
+  position?: string;
+  inviteCode?: string;
   avatar: string;
   isOnline?: boolean;
   rememberMe?: boolean;
-  status?: 'active' | 'suspended';
+  status?: UserStatus;
   lastSeen?: string;
   createdAt?: string;
   notes?: string;
+  approvedAt?: string;
+  approvedBy?: string;
 }
 
 export interface CategoryMeta {

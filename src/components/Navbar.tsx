@@ -61,7 +61,12 @@ export const Navbar: React.FC<NavbarProps> = ({
     setMobileMenuOpen(false);
   };
 
-  const isOfficer = currentUser.role === 'officer' || currentUser.role === 'admin';
+  const isOfficer =
+    currentUser.role === 'officer' ||
+    currentUser.role === 'admin' ||
+    currentUser.role === 'staff' ||
+    currentUser.role === 'super_admin';
+  const isSuperAdmin = currentUser.role === 'super_admin' || currentUser.id === 'usr-admin';
 
   return (
     <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-emerald-900/10 shadow-xs">
@@ -338,17 +343,27 @@ export const Navbar: React.FC<NavbarProps> = ({
             {/* Role indicator badge */}
             <div
               className={`px-2.5 py-1 rounded-xl text-xs font-bold border flex items-center gap-1 ${
-                isOfficer
+                isSuperAdmin
+                  ? 'bg-purple-50 text-purple-900 border-purple-300'
+                  : isOfficer
                   ? 'bg-amber-50 text-amber-900 border-amber-300'
                   : 'bg-emerald-50 text-emerald-900 border-emerald-300'
               }`}
             >
-              {isOfficer ? (
+              {isSuperAdmin ? (
+                <ShieldCheck size={13} className="text-purple-700" />
+              ) : isOfficer ? (
                 <ShieldCheck size={13} className="text-amber-700" />
               ) : (
                 <UserIcon size={13} className="text-emerald-700" />
               )}
-              <span>{isOfficer ? 'จนท. อ.ปราสาท' : 'ประชาชน'}</span>
+              <span>
+                {isSuperAdmin
+                  ? 'ผู้ดูแลระบบสูงสุด (Super Admin)'
+                  : isOfficer
+                  ? 'จนท. อ.ปราสาท'
+                  : 'ประชาชน'}
+              </span>
             </div>
 
             {/* Profile Avatar / Modal */}
