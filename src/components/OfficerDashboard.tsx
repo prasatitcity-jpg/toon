@@ -18,6 +18,8 @@ import {
   Download,
   MapPin,
   Users,
+  Camera,
+  Image as ImageIcon,
 } from 'lucide-react';
 import { CategoryType, Issue, IssueStatus, User } from '../types';
 import { CATEGORIES, STATUSES, DEPARTMENTS } from '../data/categories';
@@ -26,13 +28,16 @@ import { StatusBadge } from './StatusBadge';
 import { CategoryIcon } from './CategoryIcon';
 import { formatThaiDate } from '../utils/storage';
 import { ElephantMascot, PrasatIcon, SurinCommunityBadge } from './SurinMotifs';
+import { AdminImageEditModal } from './AdminImageEditModal';
 
 interface OfficerDashboardProps {
   issues: Issue[];
   currentUser: User;
   onSelectIssue: (issue: Issue) => void;
   onQuickUpdateStatus: (issueId: string, newStatus: IssueStatus) => void;
+  onUpdateIssue?: (issue: Issue) => Promise<void> | void;
   onOpenOnlineMembers?: () => void;
+  onNavigateToCitizenView?: () => void;
 }
 
 export const OfficerDashboard: React.FC<OfficerDashboardProps> = ({
@@ -40,9 +45,12 @@ export const OfficerDashboard: React.FC<OfficerDashboardProps> = ({
   currentUser,
   onSelectIssue,
   onQuickUpdateStatus,
+  onUpdateIssue,
   onOpenOnlineMembers,
+  onNavigateToCitizenView,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
+  const [photoEditingIssue, setPhotoEditingIssue] = useState<Issue | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<CategoryType | 'all'>('all');
   const [statusFilter, setStatusFilter] = useState<IssueStatus | 'all'>('all');
   const [subDistrictFilter, setSubDistrictFilter] = useState<string>('all');
@@ -150,6 +158,19 @@ export const OfficerDashboard: React.FC<OfficerDashboardProps> = ({
         </div>
 
         <div className="flex items-center gap-2.5 flex-wrap">
+          {onNavigateToCitizenView && (
+            <button
+              id="btn-officer-view-citizen"
+              type="button"
+              onClick={onNavigateToCitizenView}
+              className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold bg-teal-700 hover:bg-teal-800 text-white rounded-xl transition-all shadow-xs cursor-pointer active:scale-95"
+              title="สลับไปดูหน้าเว็บทั่วไปของประชาชน (หน้าหลัก / แจ้งเรื่อง / ติดตามปัญหา)"
+            >
+              <Eye size={15} />
+              <span>ดูหน้าเว็บประชาชน</span>
+            </button>
+          )}
+
           {onOpenOnlineMembers && (
             <button
               type="button"
@@ -463,17 +484,31 @@ export const OfficerDashboard: React.FC<OfficerDashboardProps> = ({
 
                     {/* Actions */}
                     <td className="py-3.5 px-4 whitespace-nowrap text-right">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onSelectIssue(issue);
-                        }}
-                        className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-teal-700 bg-teal-50 hover:bg-teal-100 rounded-lg border border-teal-200 transition-colors"
-                      >
-                        <Eye size={13} />
-                        <span>เปิดตรวจ</span>
-                      </button>
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPhotoEditingIssue(issue);
+                          }}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-teal-800 bg-teal-50 hover:bg-teal-100 rounded-lg border border-teal-200 transition-colors cursor-pointer"
+                          title="แก้ไขรูปภาพ / เปลี่ยนรูปภาพ / ใส่รูปภาพผลงาน"
+                        >
+                          <Camera size={13} />
+                          <span>แก้ไขรูป</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onSelectIssue(issue);
+                          }}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg border border-slate-200 transition-colors cursor-pointer"
+                        >
+                          <Eye size={13} />
+                          <span>เปิดตรวจ</span>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -508,6 +543,33 @@ export const OfficerDashboard: React.FC<OfficerDashboardProps> = ({
                   <span className="text-[11px] text-slate-400">{catMeta.label}</span>
                 </div>
 
+                {/* Thumbnails row in mobile */}
+                <div className="flex items-center gap-2 pt-1">
+                  <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
+                    <span className="flex items-center gap-1 font-medium">
+                      <Camera size={11} className="text-amber-600" />
+                      <span>{issue.imageUrl ? 'มีภาพแจ้ง' : 'ไม่มีภาพ'}</span>
+                    </span>
+                    <span>•</span>
+                    <span className="flex items-center gap-1 font-medium">
+                      <CheckCircle2 size={11} className="text-emerald-600" />
+                      <span>{issue.afterImageUrl ? 'มีผลงานซ่อม' : 'รอผลงาน'}</span>
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setPhotoEditingIssue(issue);
+                    }}
+                    className="ml-auto inline-flex items-center gap-1 px-2 py-1 text-xs font-bold text-teal-800 bg-teal-50 border border-teal-200 rounded-lg cursor-pointer"
+                  >
+                    <Camera size={11} />
+                    <span>แก้ไขรูปภาพ</span>
+                  </button>
+                </div>
+
                 <div
                   className="flex items-center justify-between pt-1 border-t border-slate-100"
                   onClick={(e) => e.stopPropagation()}
@@ -536,6 +598,21 @@ export const OfficerDashboard: React.FC<OfficerDashboardProps> = ({
           </div>
         )}
       </div>
+
+      {/* Admin Image Edit Modal */}
+      {photoEditingIssue && (
+        <AdminImageEditModal
+          issue={photoEditingIssue}
+          currentUser={currentUser}
+          onClose={() => setPhotoEditingIssue(null)}
+          onSave={async (updated) => {
+            if (onUpdateIssue) {
+              await onUpdateIssue(updated);
+            }
+            setPhotoEditingIssue(null);
+          }}
+        />
+      )}
     </div>
   );
 };

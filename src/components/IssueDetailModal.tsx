@@ -25,6 +25,8 @@ import { CategoryIcon } from './CategoryIcon';
 import { StatusBadge } from './StatusBadge';
 import { formatThaiDate } from '../utils/storage';
 import { MessageSquare, PhoneCall, MessageCircle, Users, CheckCircle2 } from 'lucide-react';
+import { AdminImageEditModal } from './AdminImageEditModal';
+import { processAndCompressImage } from '../utils/imageUpload';
 
 interface IssueDetailModalProps {
   issue: Issue | null;
@@ -42,7 +44,12 @@ export const IssueDetailModal: React.FC<IssueDetailModalProps> = ({
   if (!issue) return null;
 
   const categoryMeta = CATEGORIES.find((c) => c.id === issue.category) || CATEGORIES[0];
-  const isOfficer = currentUser.role === 'officer' || currentUser.role === 'admin';
+  const isOfficer =
+    currentUser.role === 'officer' ||
+    currentUser.role === 'admin' ||
+    currentUser.role === 'super_admin';
+
+  const [isImageEditModalOpen, setIsImageEditModalOpen] = useState(false);
 
   // Officer editing state
   const [selectedStatus, setSelectedStatus] = useState<IssueStatus>(issue.status);
@@ -66,20 +73,15 @@ export const IssueDetailModal: React.FC<IssueDetailModalProps> = ({
     'https://images.unsplash.com/photo-1584467735815-f778f274e296?w=800&auto=format&fit=crop&q=80',
   ];
 
-  const handleOfficerFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleOfficerFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
-    if (!validTypes.includes(file.type.toLowerCase())) {
-      return;
+    try {
+      const res = await processAndCompressImage(file);
+      setAfterImageInput(res.dataUrl);
+    } catch (err) {
+      console.error('Officer photo upload failed:', err);
     }
-    const reader = new FileReader();
-    reader.onload = (loadEvt) => {
-      if (loadEvt.target?.result) {
-        setAfterImageInput(loadEvt.target.result as string);
-      }
-    };
-    reader.readAsDataURL(file);
   };
 
   const handleCopyTicket = () => {
@@ -110,7 +112,10 @@ export const IssueDetailModal: React.FC<IssueDetailModalProps> = ({
         timestamp: now,
         actor: currentUser.name,
         actorRole: 'officer',
-        photoUrl: afterImageInput || undefined,
+        photoUrl:
+          afterImageInput && !afterImageInput.startsWith('data:')
+            ? afterImageInput
+            : undefined,
       });
     }
 
@@ -131,8 +136,12 @@ export const IssueDetailModal: React.FC<IssueDetailModalProps> = ({
       status: selectedStatus,
       assignedDepartment: assignedDept,
       assignedOfficer: assignedOfficerName,
-      afterImageUrl: afterImageInput || issue.afterImageUrl,
-      officerNotes: officerNoteInput.trim() || issue.officerNotes,
+      ...(afterImageInput || issue.afterImageUrl
+        ? { afterImageUrl: afterImageInput || issue.afterImageUrl }
+        : {}),
+      ...(officerNoteInput.trim() || issue.officerNotes
+        ? { officerNotes: officerNoteInput.trim() || issue.officerNotes }
+        : {}),
       contactLog: newContactLog,
       updatedAt: now,
       timeline: newTimeline,
@@ -257,9 +266,22 @@ export const IssueDetailModal: React.FC<IssueDetailModalProps> = ({
                     <Camera size={14} className="text-amber-400" />
                     <span>ภาพที่ประชาชนแจ้ง</span>
                   </span>
-                  <span className="text-[10px] bg-slate-700 text-slate-300 px-2 py-0.5 rounded">
-                    ภาพถ่ายจริงจากพื้นที่
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    {isOfficer && (
+                      <button
+                        type="button"
+                        onClick={() => setIsImageEditModalOpen(true)}
+                        className="text-[10px] bg-amber-500/20 hover:bg-amber-500/40 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded flex items-center gap-1 transition-colors cursor-pointer"
+                        title="แอดมินแก้ไขหรือเปลี่ยนรูปภาพนี้"
+                      >
+                        <Camera size={10} />
+                        <span>แก้ไขรูป</span>
+                      </button>
+                    )}
+                    <span className="text-[10px] bg-slate-700 text-slate-300 px-2 py-0.5 rounded">
+                      ภาพถ่ายจริงจากพื้นที่
+                    </span>
+                  </div>
                 </div>
                 {issue.imageUrl ? (
                   <img
@@ -274,6 +296,20 @@ export const IssueDetailModal: React.FC<IssueDetailModalProps> = ({
                     <p className="text-[10px] text-slate-400 mt-0.5">
                       ผู้แจ้งไม่ได้แนบภาพถ่ายมาในขณะสร้างคำร้อง
                     </p>
+                    {isOfficer && (
+                      <button
+                        type="button"
+                        onClick={() => setIsImageEditModalOpen(true)}
+                        className="mt-2.5 px-3 py-1 bg-amber-100 hover:bg-amber-200 text-amber-900 rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                      >
+                        + ใส่รูปภาพจุดเกิดเหตุ
+                      </button>
+                    )}
+                  </div>
+                )}
+                {issue.imageCaption && (
+                  <div className="px-3 py-1.5 bg-slate-50 border-t border-slate-200 text-[11px] text-slate-600">
+                    📝 {issue.imageCaption}
                   </div>
                 )}
               </div>
@@ -285,9 +321,22 @@ export const IssueDetailModal: React.FC<IssueDetailModalProps> = ({
                     <CheckCircle size={14} className="text-emerald-300" />
                     <span>ภาพหลังดำเนินการ</span>
                   </span>
-                  <span className="text-[10px] bg-emerald-700 px-1.5 py-0.5 rounded text-white">
-                    ผลงานแก้ไข
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    {isOfficer && (
+                      <button
+                        type="button"
+                        onClick={() => setIsImageEditModalOpen(true)}
+                        className="text-[10px] bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-400/40 px-2 py-0.5 rounded flex items-center gap-1 transition-colors cursor-pointer"
+                        title="แอดมินเปลี่ยนหรือใส่รูปภาพผลงาน"
+                      >
+                        <Camera size={10} />
+                        <span>{issue.afterImageUrl ? 'เปลี่ยนรูป' : 'ใส่รูปผลงาน'}</span>
+                      </button>
+                    )}
+                    <span className="text-[10px] bg-emerald-700 px-1.5 py-0.5 rounded text-white">
+                      ผลงานแก้ไข
+                    </span>
+                  </div>
                 </div>
                 {issue.afterImageUrl ? (
                   <img
@@ -298,15 +347,67 @@ export const IssueDetailModal: React.FC<IssueDetailModalProps> = ({
                 ) : (
                   <div className="h-44 sm:h-48 flex flex-col items-center justify-center p-6 text-center text-slate-400 bg-white">
                     <ImageIcon size={32} className="text-slate-300 mb-2" />
-                    <p className="text-xs font-bold text-slate-600">ยังไม่มีภาพจากพื้นที่</p>
+                    <p className="text-xs font-bold text-slate-600">ยังไม่มีภาพผลงานหลังแก้ไข</p>
                     <p className="text-[10px] text-slate-400 mt-0.5">
                       {isOfficer
-                        ? 'เจ้าหน้าที่สามารถแนบรูปถ่ายจริงหลังซ่อมเสร็จในแผงจัดการด้านล่าง'
+                        ? 'เจ้าหน้าที่/แอดมินสามารถแนบรูปถ่ายจริงหลังซ่อมเสร็จได้ที่นี่'
                         : 'อยู่ระหว่างดำเนินการโดยหน่วยงานที่เกี่ยวข้อง'}
                     </p>
+                    {isOfficer && (
+                      <button
+                        type="button"
+                        onClick={() => setIsImageEditModalOpen(true)}
+                        className="mt-2.5 px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                      >
+                        + ใส่รูปผลงานซ่อม
+                      </button>
+                    )}
+                  </div>
+                )}
+                {issue.afterImageCaption && (
+                  <div className="px-3 py-1.5 bg-emerald-50 border-t border-emerald-200 text-[11px] text-emerald-800">
+                    ✅ {issue.afterImageCaption}
                   </div>
                 )}
               </div>
+
+              {/* Additional Photos Section if present */}
+              {issue.additionalImages && issue.additionalImages.length > 0 && (
+                <div className="border border-indigo-200 rounded-2xl overflow-hidden bg-indigo-50/30 p-3 space-y-2">
+                  <div className="flex items-center justify-between text-xs font-bold text-indigo-900">
+                    <span className="flex items-center gap-1.5">
+                      <ImageIcon size={14} className="text-indigo-600" />
+                      <span>รูปภาพเพิ่มเติม ({issue.additionalImages.length} ภาพ)</span>
+                    </span>
+                    {isOfficer && (
+                      <button
+                        type="button"
+                        onClick={() => setIsImageEditModalOpen(true)}
+                        className="text-[10px] text-indigo-700 hover:text-indigo-900 font-bold"
+                      >
+                        จัดการรูปภาพ
+                      </button>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {issue.additionalImages.map((imgUrl, i) => (
+                      <a
+                        key={i}
+                        href={imgUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="rounded-lg overflow-hidden border border-indigo-200 aspect-4/3 block hover:opacity-90"
+                      >
+                        <img
+                          src={imgUrl}
+                          alt={`ภาพเพิ่มเติม ${i + 1}`}
+                          className="w-full h-full object-cover"
+                        />
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Location Pin Card */}
               <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs space-y-1.5">
@@ -554,16 +655,29 @@ export const IssueDetailModal: React.FC<IssueDetailModalProps> = ({
                       <label className="block text-xs font-semibold text-slate-700">
                         ภาพหลังดำเนินการ (รองรับ JPG, JPEG, PNG, WebP):
                       </label>
-                      <label className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[11px] font-bold rounded-lg border border-emerald-200 cursor-pointer transition-colors shadow-2xs">
-                        <Upload size={12} className="text-emerald-700" />
-                        <span>อัปโหลดรูปถ่ายจริง</span>
-                        <input
-                          type="file"
-                          accept="image/jpeg,image/jpg,image/png,image/webp"
-                          onChange={handleOfficerFileUpload}
-                          className="hidden"
-                        />
-                      </label>
+                      <div className="flex items-center gap-1.5">
+                        <label className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[11px] font-bold rounded-lg border border-emerald-200 cursor-pointer transition-colors shadow-2xs">
+                          <Upload size={12} className="text-emerald-700" />
+                          <span>📁 เลือกรูปจากเครื่อง</span>
+                          <input
+                            type="file"
+                            accept="image/*,.jpg,.jpeg,.png,.webp,.gif,.bmp"
+                            onChange={handleOfficerFileUpload}
+                            className="hidden"
+                          />
+                        </label>
+                        <label className="inline-flex items-center gap-1 px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-medium rounded-lg border border-slate-300 cursor-pointer transition-colors">
+                          <Camera size={12} className="text-slate-600" />
+                          <span>📸 ถ่ายรูป</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            capture="environment"
+                            onChange={handleOfficerFileUpload}
+                            className="hidden"
+                          />
+                        </label>
+                      </div>
                     </div>
 
                     <div className="flex gap-2">
@@ -598,6 +712,18 @@ export const IssueDetailModal: React.FC<IssueDetailModalProps> = ({
                           ภาพงานซ่อม {i + 1}
                         </button>
                       ))}
+                    </div>
+
+                    {/* Dedicated Admin Full Image Editor Trigger */}
+                    <div className="pt-1">
+                      <button
+                        type="button"
+                        onClick={() => setIsImageEditModalOpen(true)}
+                        className="w-full flex items-center justify-center gap-1.5 py-2 px-3 bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                      >
+                        <Camera size={13} />
+                        <span>เปิดเครื่องมือแก้ไขรูปภาพฉบับเต็ม (เปลี่ยนรูป / ใส่รูปภาพ / แนบภาพเพิ่มเติม)</span>
+                      </button>
                     </div>
                   </div>
 
@@ -712,6 +838,21 @@ export const IssueDetailModal: React.FC<IssueDetailModalProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Admin Image Edit Modal */}
+      {isImageEditModalOpen && (
+        <AdminImageEditModal
+          issue={issue}
+          currentUser={currentUser}
+          onClose={() => setIsImageEditModalOpen(false)}
+          onSave={async (updated) => {
+            if (onUpdateIssue) {
+              await onUpdateIssue(updated);
+            }
+            setIsImageEditModalOpen(false);
+          }}
+        />
+      )}
     </div>
   );
 };

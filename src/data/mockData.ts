@@ -273,7 +273,7 @@ export const INITIAL_ISSUES: Issue[] = [
     longitude: 103.4155,
     reporterName: 'แม่ค้าอนงค์ ชาวทมอ',
     reporterPhone: '085-987-6543',
-    imageUrl: 'https://images.unsplash.com/photo-1541888946425-d0fbb186c5f8?w=800&auto=format&fit=crop&q=80',
+    imageUrl: 'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?w=800&auto=format&fit=crop&q=80',
     assignedDepartment: 'กองการประปา อบต.ทมอ',
     assignedOfficer: 'ช่างวิรัช ประปา',
     officerNotes: 'ปิดวาล์วท่อน้ำย่อยเพื่อชะลอน้ำไหลทิ้งแล้ว กำลังขุดเปิดหน้าดินเพื่อตัดต่อข้อต่อท่อ PE ขนาด 3 นิ้วใหม่',

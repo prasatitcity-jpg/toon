@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Issue, IssueStatus, User, TicketNotification, AppTab } from './types';
+import { Issue, IssueStatus, User, TicketNotification, AppTab, CategoryMeta, CategoryType } from './types';
 import {
   getStoredIssues,
   saveStoredIssues,
@@ -9,6 +9,9 @@ import {
   saveStoredUsers,
   getStoredIsLoggedIn,
   saveStoredIsLoggedIn,
+  getStoredCategories,
+  saveStoredCategories,
+  updateStoredCategoryPhoto,
   resetToDemoData,
 } from './utils/storage';
 import {
@@ -37,16 +40,20 @@ import { ProfileModal } from './components/ProfileModal';
 import { SqlExportModal } from './components/SqlExportModal';
 import { ToastContainer, ToastMessage } from './components/Toast';
 import { INITIAL_USERS } from './data/mockData';
+import { CATEGORIES } from './data/categories';
 import {
   subscribeToIssues,
   subscribeToUsers,
   subscribeToNotifications,
+  subscribeToCategorySettings,
   saveIssueToFirestore,
   updateIssueInFirestore,
   saveUserToFirestore,
   deleteUserFromFirestore,
   saveNotificationToFirestore,
   markAllNotificationsReadInFirestore,
+  saveCategoryPhotoToFirestore,
+  resetCategoryPhotoInFirestore,
   resetDatabaseToDefaults,
 } from './services/firestoreService';
 import {
@@ -56,7 +63,9 @@ import {
   Heart,
   RotateCcw,
   Sparkles,
-  Database,
+  Eye,
+  LayoutDashboard,
+  Settings,
 } from 'lucide-react';
 
 export default function App() {
@@ -65,6 +74,7 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<User>(() => getStoredCurrentUser());
   const [allUsers, setAllUsers] = useState<User[]>(() => getStoredUsers());
   const [isDbConnected, setIsDbConnected] = useState<boolean>(true);
+  const [categories, setCategories] = useState<CategoryMeta[]>(() => getStoredCategories());
   const [notifications, setNotifications] = useState<TicketNotification[]>(() =>
     getStoredNotifications()
   );
@@ -150,11 +160,24 @@ export default function App() {
       }
     );
 
+    const unsubCategories = subscribeToCategorySettings(
+      (firestoreCats) => {
+        if (isMounted && firestoreCats && firestoreCats.length > 0) {
+          setCategories(firestoreCats);
+          saveStoredCategories(firestoreCats);
+        }
+      },
+      (err) => {
+        console.warn('Firestore categories fallback mode:', err);
+      }
+    );
+
     return () => {
       isMounted = false;
       unsubIssues();
       unsubUsers();
       unsubNotifs();
+      unsubCategories();
     };
   }, []);
 
@@ -216,6 +239,7 @@ export default function App() {
     afterImageUrl?: string
   ) => {
     const now = new Date().toISOString();
+    const finalAfterImage = afterImageUrl || issue.afterImageUrl;
     const newNotif: TicketNotification = {
       id: `notif-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       ticketId: issue.id,
@@ -228,12 +252,12 @@ export default function App() {
       officerNotes:
         officerNotes ||
         `เจ้าหน้าที่ฝ่ายปฏิบัติการได้ทำการปรับปรุงสถานะเป็น "${STATUS_LABEL_MAP[newStatus]}"`,
-      afterImageUrl: afterImageUrl || issue.afterImageUrl,
-      subDistrict: issue.subDistrict,
-      village: issue.village,
       isRead: false,
-      reporterName: issue.reporterName,
-      reporterPhone: issue.reporterPhone,
+      ...(finalAfterImage ? { afterImageUrl: finalAfterImage } : {}),
+      ...(issue.subDistrict ? { subDistrict: issue.subDistrict } : {}),
+      ...(issue.village ? { village: issue.village } : {}),
+      ...(issue.reporterName ? { reporterName: issue.reporterName } : {}),
+      ...(issue.reporterPhone ? { reporterPhone: issue.reporterPhone } : {}),
     };
 
     // Update notifications list
@@ -265,7 +289,7 @@ export default function App() {
     addToast(
       'success',
       'แจ้งปัญหาสำเร็จ!',
-      `รหัส Ticket ของคุณคือ ${newIssue.ticketCode} (บันทึกข้อมูลลงฐานข้อมูล Cloud Firestore แล้ว)`
+      `รหัส Ticket ของคุณคือ ${newIssue.ticketCode}`
     );
     try {
       await saveIssueToFirestore(newIssue);
@@ -295,6 +319,43 @@ export default function App() {
       await saveIssueToFirestore(updated);
     } catch (e) {
       console.error('Failed to update issue in Firestore:', e);
+    }
+  };
+
+  const handleUpdateCategoryPhoto = async (catId: CategoryType, newPhotoUrl: string) => {
+    // 1. Update state & localStorage immediately
+    const updated = updateStoredCategoryPhoto(catId, newPhotoUrl);
+    setCategories(updated);
+
+    const catName = categories.find((c) => c.id === catId)?.label || catId;
+    addToast(
+      'success',
+      'เปลี่ยนภาพหมวดหมู่สำเร็จ',
+      `อัปเดตภาพจริงของหมวดหมู่ "${catName}" บนหน้าประชาชนเรียบร้อยแล้ว`
+    );
+
+    // 2. Persist to Firestore
+    try {
+      await saveCategoryPhotoToFirestore(catId, newPhotoUrl, currentUser.name || 'แอดมิน');
+    } catch (e) {
+      console.error('Failed to sync category photo to Firestore:', e);
+    }
+  };
+
+  const handleResetCategoryPhoto = async (catId: CategoryType) => {
+    const defaultCat = CATEGORIES.find((c) => c.id === catId);
+    if (!defaultCat) return;
+    const updated = updateStoredCategoryPhoto(catId, defaultCat.realPhotoUrl);
+    setCategories(updated);
+    addToast(
+      'info',
+      'รีเซ็ตภาพหมวดหมู่',
+      `คืนค่าภาพตั้งต้นของหมวดหมู่ "${defaultCat.label}" เรียบร้อยแล้ว`
+    );
+    try {
+      await resetCategoryPhotoInFirestore(catId);
+    } catch (e) {
+      console.error('Failed to reset category photo in Firestore:', e);
     }
   };
 
@@ -373,7 +434,9 @@ export default function App() {
       ...target,
       status: nextStatus,
       officerNotes: sampleOfficerNote,
-      afterImageUrl: sampleAfterImage || target.afterImageUrl,
+      ...(sampleAfterImage || target.afterImageUrl
+        ? { afterImageUrl: sampleAfterImage || target.afterImageUrl }
+        : {}),
       updatedAt: now,
       timeline: [
         ...target.timeline,
@@ -385,7 +448,7 @@ export default function App() {
           timestamp: now,
           actor: 'นายประสิทธิ์ สุขใจ (กองช่าง เทศบาลตำบลกังแอน)',
           actorRole: 'officer',
-          photoUrl: sampleAfterImage,
+          ...(sampleAfterImage ? { photoUrl: sampleAfterImage } : {}),
         },
       ],
     };
@@ -602,7 +665,7 @@ export default function App() {
             addToast(
               'success',
               'ลงทะเบียนสำเร็จ!',
-              `ยินดีต้อนรับสมาชิกใหม่ ${newUser.name} ต.${newUser.subDistrict || 'กังแอน'} เข้าสู่ชุมชนอำเภอปราสาท (บันทึกลงฐานข้อมูล Cloud Firestore แล้ว)`
+              `ยินดีต้อนรับสมาชิกใหม่ ${newUser.name} ต.${newUser.subDistrict || 'กังแอน'} เข้าสู่ชุมชนอำเภอปราสาท`
             );
             try {
               await saveUserToFirestore(newUser);
@@ -616,6 +679,18 @@ export default function App() {
   }
 
   const pendingCount = issues.filter((i) => i.status === 'pending').length;
+
+  const isOfficer =
+    currentUser.role === 'officer' ||
+    currentUser.role === 'admin' ||
+    currentUser.role === 'staff' ||
+    currentUser.role === 'super_admin';
+
+  const isCitizenViewTab =
+    currentTab === 'home' ||
+    currentTab === 'report' ||
+    currentTab === 'track' ||
+    currentTab === 'my_history';
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 text-slate-800 font-sans">
@@ -639,6 +714,84 @@ export default function App() {
         onOpenSqlModal={() => setIsSqlModalOpen(true)}
       />
 
+      {/* Admin Citizen View Banner Indicator */}
+      {isOfficer && isCitizenViewTab && (
+        <aside
+          aria-label="แถบแจ้งเตือนมุมมองประชาชนสำหรับแอดมิน"
+          className="bg-gradient-to-r from-emerald-950 via-slate-900 to-teal-950 text-white px-4 py-2 text-xs border-b border-emerald-700/60 shadow-inner flex flex-wrap items-center justify-between gap-3 sticky top-16 sm:top-20 z-30 backdrop-blur-md"
+        >
+          <div className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span className="font-extrabold text-emerald-300 flex items-center gap-1.5">
+              <Eye size={15} />
+              <span>มุมมองประชาชนทั่วไป (Citizen Portal Preview)</span>
+            </span>
+            <span className="hidden md:inline text-slate-300">
+              — แอดมินกำลังดูหน้าจอในมุมมองของประชาชน
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-1 bg-white/10 p-0.5 rounded-xl">
+              <button
+                type="button"
+                onClick={() => handleSelectTab('home')}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors cursor-pointer ${
+                  currentTab === 'home' ? 'bg-emerald-600 text-white shadow-2xs' : 'text-slate-300 hover:text-white'
+                }`}
+              >
+                หน้าหลัก
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSelectTab('report')}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors cursor-pointer ${
+                  currentTab === 'report' ? 'bg-emerald-600 text-white shadow-2xs' : 'text-slate-300 hover:text-white'
+                }`}
+              >
+                แจ้งเรื่อง
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSelectTab('track')}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors cursor-pointer ${
+                  currentTab === 'track' ? 'bg-emerald-600 text-white shadow-2xs' : 'text-slate-300 hover:text-white'
+                }`}
+              >
+                ติดตามปัญหา
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSelectTab('map')}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors cursor-pointer ${
+                  currentTab === 'map' ? 'bg-emerald-600 text-white shadow-2xs' : 'text-slate-300 hover:text-white'
+                }`}
+              >
+                แผนที่
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => handleSelectTab('officer')}
+              className="flex items-center gap-1.5 px-3 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-[11px] rounded-lg shadow-xs transition-transform active:scale-95 cursor-pointer"
+            >
+              <LayoutDashboard size={13} />
+              <span>กลับสู่แดชบอร์ดแอดมิน</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleSelectTab('backend_settings')}
+              className="flex items-center gap-1 px-2.5 py-1 bg-white/10 hover:bg-white/20 text-white font-medium text-[11px] rounded-lg transition-colors cursor-pointer"
+            >
+              <Settings size={13} />
+              <span>ตั้งค่าหลังบ้าน</span>
+            </button>
+          </div>
+        </aside>
+      )}
+
       {/* Main Content Area */}
       <main className="flex-1">
         {currentTab === 'home' && (
@@ -647,6 +800,10 @@ export default function App() {
             onNavigate={handleSelectTab}
             onSelectIssue={(issue) => setSelectedIssue(issue)}
             onQuickSearch={() => setCurrentTab('track')}
+            currentUser={currentUser}
+            categories={categories}
+            onUpdateCategoryPhoto={handleUpdateCategoryPhoto}
+            onResetCategoryPhoto={handleResetCategoryPhoto}
           />
         )}
 
@@ -660,6 +817,9 @@ export default function App() {
               setSelectedIssue(issue);
               setCurrentTab('track');
             }}
+            categories={categories}
+            onUpdateCategoryPhoto={handleUpdateCategoryPhoto}
+            onResetCategoryPhoto={handleResetCategoryPhoto}
           />
         )}
 
@@ -715,6 +875,8 @@ export default function App() {
             onOpenSqlModal={() => setIsSqlModalOpen(true)}
             onResetSystemData={handleResetData}
             onSelectIssue={(issue) => setSelectedIssue(issue)}
+            onUpdateIssue={handleUpdateIssue}
+            onNavigateToCitizenView={() => handleSelectTab('home')}
             isDbConnected={isDbConnected}
           />
         )}
@@ -729,6 +891,8 @@ export default function App() {
             onOpenSqlModal={() => setIsSqlModalOpen(true)}
             onResetSystemData={handleResetData}
             onSelectIssue={(issue) => setSelectedIssue(issue)}
+            onUpdateIssue={handleUpdateIssue}
+            onNavigateToCitizenView={() => handleSelectTab('home')}
             isDbConnected={isDbConnected}
           />
         )}
@@ -739,7 +903,9 @@ export default function App() {
             currentUser={currentUser}
             onSelectIssue={(issue) => setSelectedIssue(issue)}
             onQuickUpdateStatus={handleQuickUpdateStatus}
+            onUpdateIssue={handleUpdateIssue}
             onOpenOnlineMembers={() => setCurrentTab('online_members')}
+            onNavigateToCitizenView={() => handleSelectTab('home')}
           />
         )}
       </main>
@@ -801,51 +967,6 @@ export default function App() {
       {/* Global Footer - Prasat Community Care */}
       <footer className="bg-white border-t border-emerald-900/10 mt-auto text-xs text-slate-500">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10">
-          {/* Cloud Database Connection Status Banner */}
-          <div className="mb-6 p-3 rounded-2xl bg-slate-50 border border-slate-200/80 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2.5">
-              <div
-                className={`w-8 h-8 rounded-xl flex items-center justify-center ${
-                  isDbConnected ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
-                }`}
-              >
-                <Database size={16} />
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="font-bold text-slate-800 text-xs">
-                    {isDbConnected
-                      ? 'ฐานข้อมูล Cloud Firestore ออนไลน์ (Real-time Database Active)'
-                      : 'กำลังเชื่อมต่อฐานข้อมูล Cloud Firestore...'}
-                  </span>
-                  <span
-                    className={`inline-block w-2 h-2 rounded-full ${
-                      isDbConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'
-                    }`}
-                  ></span>
-                </div>
-                <p className="text-[11px] text-slate-500">
-                  ซิงค์ข้อมูลคำร้อง ปัญหาชุมชน บัญชีผู้ใช้ และการแจ้งเตือนแบบเรียลไทม์ • พร้อมส่งออกเป็น SQL สำหรับ Supabase
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                id="btn-footer-open-sql"
-                type="button"
-                onClick={() => setIsSqlModalOpen(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs transition-all shadow-xs active:scale-95 cursor-pointer"
-                title="คลิกเพื่อดูและดาวน์โหลดไฟล์ SQL สำหรับใส่ใน Supabase"
-              >
-                <Database size={13} />
-                <span>ดาวน์โหลด SQL (Supabase)</span>
-              </button>
-              <div className="text-[11px] text-slate-400 font-mono bg-white px-2.5 py-1 rounded-lg border border-slate-200">
-                Project ID: applet-10e68098-ba1f-4204-b593
-              </div>
-            </div>
-          </div>
-
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
             <div className="space-y-2">
               <div className="flex items-center gap-2">

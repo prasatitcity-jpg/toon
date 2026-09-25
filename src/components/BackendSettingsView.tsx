@@ -46,6 +46,8 @@ import {
   Key,
   Ban,
   ArrowRight,
+  Camera,
+  Image as ImageIcon,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -62,7 +64,7 @@ import {
   Cell,
   Legend,
 } from 'recharts';
-import { Issue, User, IssueStatus } from '../types';
+import { Issue, User, IssueStatus, CategoryType } from '../types';
 import { CATEGORIES, STATUSES, DEPARTMENTS } from '../data/categories';
 import { PRASAT_SUB_DISTRICTS } from '../data/prasatLocations';
 import { ElephantMascot, PrasatIcon, SurinCommunityBadge, SurinSilkRibbon } from './SurinMotifs';
@@ -73,6 +75,10 @@ import {
   suspendUser,
   reactivateUser,
 } from '../services/supabaseService';
+import { CategoryIcon } from './CategoryIcon';
+import { StatusBadge } from './StatusBadge';
+import { AdminImageEditModal } from './AdminImageEditModal';
+import { formatThaiDate } from '../utils/storage';
 
 interface BackendSettingsViewProps {
   issues: Issue[];
@@ -83,10 +89,12 @@ interface BackendSettingsViewProps {
   onOpenSqlModal: () => void;
   onResetSystemData: () => void;
   onSelectIssue?: (issue: Issue) => void;
+  onUpdateIssue?: (issue: Issue) => Promise<void> | void;
+  onNavigateToCitizenView?: () => void;
   isDbConnected?: boolean;
 }
 
-type BackendSubTab = 'dashboard' | 'staff_requests' | 'members' | 'settings';
+type BackendSubTab = 'dashboard' | 'photos' | 'staff_requests' | 'members' | 'settings';
 
 export const BackendSettingsView: React.FC<BackendSettingsViewProps> = ({
   issues,
@@ -97,9 +105,20 @@ export const BackendSettingsView: React.FC<BackendSettingsViewProps> = ({
   onOpenSqlModal,
   onResetSystemData,
   onSelectIssue,
+  onUpdateIssue,
+  onNavigateToCitizenView,
   isDbConnected = true,
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<BackendSubTab>('dashboard');
+
+  // --- PHOTO & MEDIA MANAGEMENT STATES (ADMIN) ---
+  const [photoEditingIssue, setPhotoEditingIssue] = useState<Issue | null>(null);
+  const [photoFilterCategory, setPhotoFilterCategory] = useState<CategoryType | 'all'>('all');
+  const [photoFilterStatus, setPhotoFilterStatus] = useState<
+    'all' | 'has_both' | 'need_after' | 'need_before'
+  >('all');
+  const [photoSearch, setPhotoSearch] = useState('');
+  const [photoSubDistrictFilter, setPhotoSubDistrictFilter] = useState<string>('all');
 
   // --- STAFF APPLICATION MANAGEMENT (SUPER ADMIN) ---
   const [staffApps, setStaffApps] = useState<User[]>([]);
@@ -214,6 +233,49 @@ export const BackendSettingsView: React.FC<BackendSettingsViewProps> = ({
     { month: 'ส.ค.', reported: 32, resolved: 29 },
     { month: 'ก.ย.', reported: issues.length, resolved: resolvedIssues },
   ];
+
+  // Photo & Media management metrics and filtered issues
+  const issuesWithBothPhotos = useMemo(
+    () => issues.filter((i) => i.imageUrl && i.afterImageUrl),
+    [issues]
+  );
+  const issuesNeedingAfter = useMemo(
+    () => issues.filter((i) => i.imageUrl && !i.afterImageUrl),
+    [issues]
+  );
+  const issuesNeedingBefore = useMemo(
+    () => issues.filter((i) => !i.imageUrl),
+    [issues]
+  );
+
+  const filteredPhotoIssues = useMemo(() => {
+    return issues
+      .filter((item) => {
+        if (photoFilterCategory !== 'all' && item.category !== photoFilterCategory) return false;
+        if (
+          photoSubDistrictFilter !== 'all' &&
+          !item.locationName.includes(photoSubDistrictFilter)
+        )
+          return false;
+        if (photoFilterStatus === 'has_both' && (!item.imageUrl || !item.afterImageUrl))
+          return false;
+        if (photoFilterStatus === 'need_after' && (!item.imageUrl || item.afterImageUrl))
+          return false;
+        if (photoFilterStatus === 'need_before' && item.imageUrl) return false;
+
+        if (photoSearch.trim()) {
+          const q = photoSearch.toLowerCase();
+          return (
+            item.ticketCode.toLowerCase().includes(q) ||
+            item.title.toLowerCase().includes(q) ||
+            item.locationName.toLowerCase().includes(q) ||
+            item.reporterName.toLowerCase().includes(q)
+          );
+        }
+        return true;
+      })
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [issues, photoFilterCategory, photoSubDistrictFilter, photoFilterStatus, photoSearch]);
 
   // Filtered members list
   const filteredUsers = useMemo(() => {
@@ -602,6 +664,18 @@ export const BackendSettingsView: React.FC<BackendSettingsViewProps> = ({
 
           {/* Quick Action Badges */}
           <div className="flex flex-wrap items-center gap-2.5">
+            {onNavigateToCitizenView && (
+              <button
+                id="btn-backend-view-citizen"
+                type="button"
+                onClick={onNavigateToCitizenView}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold text-xs shadow-md transition-all active:scale-95 cursor-pointer"
+                title="สลับไปดูหน้าเว็บทั่วไปของประชาชน (หน้าหลัก / แจ้งปัญหา / ติดตามผล)"
+              >
+                <Eye size={15} />
+                <span>ดูหน้าเว็บประชาชน</span>
+              </button>
+            )}
             <button
               id="btn-backend-open-sql"
               type="button"
@@ -652,8 +726,8 @@ export const BackendSettingsView: React.FC<BackendSettingsViewProps> = ({
         </div>
       )}
 
-      {/* Main Navigation Sub-Tabs (Dashboard / Staff Requests / Member / System Settings) */}
-      <div className="bg-white p-1.5 rounded-2xl border border-slate-200/80 shadow-xs grid grid-cols-2 md:grid-cols-4 gap-1">
+      {/* Main Navigation Sub-Tabs (Dashboard / Photos / Staff Requests / Member / System Settings) */}
+      <div className="bg-white p-1.5 rounded-2xl border border-slate-200/80 shadow-xs grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-1.5">
         <button
           id="tab-backend-dashboard"
           type="button"
@@ -674,6 +748,29 @@ export const BackendSettingsView: React.FC<BackendSettingsViewProps> = ({
             }`}
           >
             {totalIssues}
+          </span>
+        </button>
+
+        <button
+          id="tab-backend-photos"
+          type="button"
+          onClick={() => setActiveSubTab('photos')}
+          className={`flex items-center justify-center gap-2 py-3 px-3 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+            activeSubTab === 'photos'
+              ? 'bg-teal-800 text-white shadow-sm'
+              : 'text-slate-600 hover:text-teal-900 hover:bg-slate-50'
+          }`}
+        >
+          <Camera size={17} />
+          <span>จัดการรูปภาพคำร้อง</span>
+          <span
+            className={`text-[11px] px-2 py-0.5 rounded-full font-extrabold ${
+              activeSubTab === 'photos'
+                ? 'bg-teal-700 text-teal-100'
+                : 'bg-slate-100 text-slate-600'
+            }`}
+          >
+            {issues.length}
           </span>
         </button>
 
@@ -1183,7 +1280,379 @@ export const BackendSettingsView: React.FC<BackendSettingsViewProps> = ({
       )}
 
       {/* ========================================================================= */}
-      {/* 2. STAFF APPLICATION REQUESTS SUB-TAB (SUPER ADMIN WORKFLOW) */}
+      {/* 2. PHOTO & MEDIA MANAGEMENT SUB-TAB (ADMIN IMAGE EDITOR) */}
+      {/* ========================================================================= */}
+      {activeSubTab === 'photos' && (
+        <div className="space-y-6 animate-in fade-in duration-200">
+          {/* Header Banner */}
+          <div className="bg-gradient-to-r from-teal-950 via-slate-900 to-teal-950 text-white p-6 rounded-3xl border border-teal-800 shadow-md flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-2">
+                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-teal-500/20 text-teal-300 border border-teal-400/30 flex items-center gap-1.5">
+                  <Camera size={14} />
+                  <span>ระบบจัดการและแก้ไขข้อมูลรูปภาพ (Admin Image & Media Center)</span>
+                </span>
+                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-400/40">
+                  อ.ปราสาท 18 ตำบล
+                </span>
+              </div>
+              <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-white flex items-center gap-2">
+                <span>คลังภาพและเครื่องมือแก้ไขรูปภาพคำร้อง</span>
+              </h2>
+              <p className="text-xs sm:text-sm text-teal-100/80 max-w-2xl">
+                แอดมินสามารถเปลี่ยนรูปภาพ แนบภาพถ่ายจริงจากพื้นที่ ใส่ภาพผลงานการเข้าซ่อมแซม และเพิ่มภาพหลักฐานเพิ่มเติมได้แบบเรียลไทม์
+              </p>
+            </div>
+          </div>
+
+          {/* KPI Photo Summary Cards */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div
+              onClick={() => setPhotoFilterStatus('all')}
+              className={`bg-white p-4 sm:p-5 rounded-2xl border transition-all cursor-pointer shadow-xs ${
+                photoFilterStatus === 'all'
+                  ? 'border-teal-700 ring-2 ring-teal-700/20 bg-teal-50/20'
+                  : 'border-slate-200 hover:border-slate-300'
+              }`}
+            >
+              <div className="flex items-center justify-between text-slate-500 mb-2">
+                <span className="text-xs font-semibold">เรื่องทั้งหมด</span>
+                <div className="w-8 h-8 rounded-xl bg-teal-100 text-teal-800 flex items-center justify-center">
+                  <ImageIcon size={16} />
+                </div>
+              </div>
+              <div className="text-2xl sm:text-3xl font-bold text-slate-900">{issues.length}</div>
+              <p className="text-[11px] text-slate-400 mt-1">เรื่องร้องเรียนทั้งหมดในระบบ</p>
+            </div>
+
+            <div
+              onClick={() => setPhotoFilterStatus('has_both')}
+              className={`bg-white p-4 sm:p-5 rounded-2xl border transition-all cursor-pointer shadow-xs ${
+                photoFilterStatus === 'has_both'
+                  ? 'border-emerald-600 ring-2 ring-emerald-600/20 bg-emerald-50/30'
+                  : 'border-slate-200 hover:border-emerald-300'
+              }`}
+            >
+              <div className="flex items-center justify-between text-emerald-700 mb-2">
+                <span className="text-xs font-semibold">มีภาพก่อน-หลังครบ</span>
+                <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
+                  <CheckCircle2 size={16} />
+                </div>
+              </div>
+              <div className="text-2xl sm:text-3xl font-bold text-emerald-700">
+                {issuesWithBothPhotos.length}
+              </div>
+              <p className="text-[11px] text-emerald-600 font-medium mt-1">มีทั้งภาพแจ้งและภาพผลงานซ่อม</p>
+            </div>
+
+            <div
+              onClick={() => setPhotoFilterStatus('need_after')}
+              className={`bg-white p-4 sm:p-5 rounded-2xl border transition-all cursor-pointer shadow-xs ${
+                photoFilterStatus === 'need_after'
+                  ? 'border-amber-500 ring-2 ring-amber-500/20 bg-amber-50/30'
+                  : 'border-slate-200 hover:border-amber-300'
+              }`}
+            >
+              <div className="flex items-center justify-between text-amber-700 mb-2">
+                <span className="text-xs font-semibold">รอใส่ภาพผลงานหลังซ่อม</span>
+                <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center">
+                  <Clock size={16} />
+                </div>
+              </div>
+              <div className="text-2xl sm:text-3xl font-bold text-amber-700">
+                {issuesNeedingAfter.length}
+              </div>
+              <p className="text-[11px] text-amber-600 font-medium mt-1">ต้องแนบภาพหลังเข้าซ่อมแซม</p>
+            </div>
+
+            <div
+              onClick={() => setPhotoFilterStatus('need_before')}
+              className={`bg-white p-4 sm:p-5 rounded-2xl border transition-all cursor-pointer shadow-xs ${
+                photoFilterStatus === 'need_before'
+                  ? 'border-rose-500 ring-2 ring-rose-500/20 bg-rose-50/30'
+                  : 'border-slate-200 hover:border-rose-300'
+              }`}
+            >
+              <div className="flex items-center justify-between text-rose-700 mb-2">
+                <span className="text-xs font-semibold">ยังไม่มีภาพประกอบ</span>
+                <div className="w-8 h-8 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center">
+                  <AlertTriangle size={16} />
+                </div>
+              </div>
+              <div className="text-2xl sm:text-3xl font-bold text-rose-700">
+                {issuesNeedingBefore.length}
+              </div>
+              <p className="text-[11px] text-rose-600 font-medium mt-1">สามารถใส่ภาพถ่ายจุดเกิดเหตุเพิ่มได้</p>
+            </div>
+          </div>
+
+          {/* Search & Filter Toolbar */}
+          <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs space-y-3">
+            <div className="flex flex-col md:flex-row gap-3">
+              <div className="relative flex-1">
+                <Search
+                  size={16}
+                  className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
+                />
+                <input
+                  type="text"
+                  value={photoSearch}
+                  onChange={(e) => setPhotoSearch(e.target.value)}
+                  placeholder="ค้นหาตามรหัสปัญหา, ชื่อปัญหา, ผู้แจ้ง, หรือสถานที่..."
+                  className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:outline-teal-500 transition-all"
+                />
+                {photoSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setPhotoSearch('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+
+              {/* Status filter */}
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0">
+                <button
+                  type="button"
+                  onClick={() => setPhotoFilterStatus('all')}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-xl whitespace-nowrap transition-colors cursor-pointer ${
+                    photoFilterStatus === 'all'
+                      ? 'bg-slate-900 text-white shadow-xs'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  ทั้งหมด ({issues.length})
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setPhotoFilterStatus('has_both')}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-xl whitespace-nowrap transition-colors cursor-pointer ${
+                    photoFilterStatus === 'has_both'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
+                  }`}
+                >
+                  มีรูปครบ ({issuesWithBothPhotos.length})
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setPhotoFilterStatus('need_after')}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-xl whitespace-nowrap transition-colors cursor-pointer ${
+                    photoFilterStatus === 'need_after'
+                      ? 'bg-amber-600 text-white shadow-xs'
+                      : 'bg-amber-50 text-amber-800 hover:bg-amber-100'
+                  }`}
+                >
+                  รอภาพผลงาน ({issuesNeedingAfter.length})
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setPhotoFilterStatus('need_before')}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-xl whitespace-nowrap transition-colors cursor-pointer ${
+                    photoFilterStatus === 'need_before'
+                      ? 'bg-rose-600 text-white shadow-xs'
+                      : 'bg-rose-50 text-rose-800 hover:bg-rose-100'
+                  }`}
+                >
+                  ขาดภาพแจ้ง ({issuesNeedingBefore.length})
+                </button>
+              </div>
+            </div>
+
+            {/* Sub-district & Category Dropdowns */}
+            <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100 text-xs">
+              <span className="text-slate-400 font-medium">กรองเพิ่มเติม:</span>
+              <select
+                value={photoFilterCategory}
+                onChange={(e) => setPhotoFilterCategory(e.target.value as CategoryType | 'all')}
+                className="py-1.5 px-2.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-700 font-medium cursor-pointer"
+              >
+                <option value="all">ทุกหมวดหมู่ ({CATEGORIES.length})</option>
+                {CATEGORIES.map((cat) => (
+                  <option key={cat.id} value={cat.id}>
+                    {cat.label}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={photoSubDistrictFilter}
+                onChange={(e) => setPhotoSubDistrictFilter(e.target.value)}
+                className="py-1.5 px-2.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-700 font-medium cursor-pointer"
+              >
+                <option value="all">ทุกตำบลใน อ.ปราสาท (18 ตำบล)</option>
+                {PRASAT_SUB_DISTRICTS.map((sd) => (
+                  <option key={sd.id} value={sd.name}>
+                    ต.{sd.name}
+                  </option>
+                ))}
+              </select>
+
+              <span className="ml-auto text-slate-400 font-mono text-[11px]">
+                แสดง {filteredPhotoIssues.length} จาก {issues.length} รายการ
+              </span>
+            </div>
+          </div>
+
+          {/* Photo Gallery Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+            {filteredPhotoIssues.map((issue) => {
+              const catMeta = CATEGORIES.find((c) => c.id === issue.category) || CATEGORIES[0];
+
+              return (
+                <div
+                  key={issue.id}
+                  className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-2xs hover:shadow-md transition-all flex flex-col justify-between"
+                >
+                  {/* Card Header */}
+                  <div className="p-4 border-b border-slate-100 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono font-bold text-xs px-2 py-0.5 rounded bg-teal-50 text-teal-800 border border-teal-200">
+                          {issue.ticketCode}
+                        </span>
+                        <div
+                          className="w-4 h-4 rounded flex items-center justify-center text-white"
+                          style={{ backgroundColor: catMeta.color }}
+                        >
+                          <CategoryIcon category={issue.category} size={10} />
+                        </div>
+                        <span className="text-xs text-slate-600 font-medium">{catMeta.label}</span>
+                      </div>
+                      <StatusBadge status={issue.status} size="sm" />
+                    </div>
+
+                    <h3 className="text-sm font-bold text-slate-900 line-clamp-1">
+                      {issue.title}
+                    </h3>
+                    <p className="text-[11px] text-slate-500 line-clamp-1 flex items-center gap-1">
+                      <MapPin size={12} className="text-rose-500 shrink-0" />
+                      <span>{issue.locationName}</span>
+                    </p>
+                  </div>
+
+                  {/* Dual Image Comparison Container */}
+                  <div className="grid grid-cols-2 gap-1.5 p-3 bg-slate-50 border-y border-slate-100">
+                    {/* Before Image Thumbnail */}
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between text-[10px] font-bold text-slate-600 px-1">
+                        <span className="flex items-center gap-1">
+                          <Camera size={11} className="text-amber-600" />
+                          <span>ภาพที่แจ้ง</span>
+                        </span>
+                        {issue.imageUrl && (
+                          <span className="text-[9px] bg-slate-200 text-slate-700 px-1 rounded">
+                            มีภาพ
+                          </span>
+                        )}
+                      </div>
+                      <div className="relative h-28 rounded-xl overflow-hidden bg-slate-200 border border-slate-200 group">
+                        {issue.imageUrl ? (
+                          <img
+                            src={issue.imageUrl}
+                            alt="ภาพที่แจ้ง"
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex flex-col items-center justify-center text-slate-400 p-2 text-center bg-slate-100">
+                            <ImageIcon size={20} className="mb-0.5 text-slate-300" />
+                            <span className="text-[10px]">ไม่มีภาพ</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* After Image Thumbnail */}
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between text-[10px] font-bold text-emerald-800 px-1">
+                        <span className="flex items-center gap-1">
+                          <CheckCircle2 size={11} className="text-emerald-600" />
+                          <span>ผลงานซ่อม</span>
+                        </span>
+                        {issue.afterImageUrl ? (
+                          <span className="text-[9px] bg-emerald-100 text-emerald-800 px-1 rounded">
+                            มีผลงาน
+                          </span>
+                        ) : (
+                          <span className="text-[9px] bg-amber-100 text-amber-800 px-1 rounded font-normal">
+                            ยังไม่มี
+                          </span>
+                        )}
+                      </div>
+                      <div className="relative h-28 rounded-xl overflow-hidden bg-emerald-50/50 border border-emerald-200 group">
+                        {issue.afterImageUrl ? (
+                          <img
+                            src={issue.afterImageUrl}
+                            alt="ผลงานซ่อม"
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                          />
+                        ) : (
+                          <div
+                            onClick={() => setPhotoEditingIssue(issue)}
+                            className="w-full h-full flex flex-col items-center justify-center text-amber-700 p-2 text-center bg-amber-50/40 hover:bg-amber-50 cursor-pointer transition-colors border border-dashed border-amber-300 rounded-xl"
+                          >
+                            <Plus size={18} className="mb-0.5 text-amber-600" />
+                            <span className="text-[10px] font-bold">ใส่รูปผลงาน</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Extra Photos indicator if present */}
+                  {issue.additionalImages && issue.additionalImages.length > 0 && (
+                    <div className="px-4 py-1.5 bg-indigo-50/60 text-indigo-800 text-[11px] font-semibold flex items-center justify-between">
+                      <span className="flex items-center gap-1">
+                        <Layers size={12} />
+                        <span>มีรูปภาพเพิ่มเติมแนบอยู่ {issue.additionalImages.length} ภาพ</span>
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Actions Footer */}
+                  <div className="p-3 bg-white flex items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setPhotoEditingIssue(issue)}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 text-xs font-bold text-white bg-teal-700 hover:bg-teal-800 rounded-xl transition-colors shadow-2xs cursor-pointer"
+                    >
+                      <Camera size={14} />
+                      <span>แก้ไข / เปลี่ยนรูปภาพ</span>
+                    </button>
+
+                    {onSelectIssue && (
+                      <button
+                        type="button"
+                        onClick={() => onSelectIssue(issue)}
+                        className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-xl border border-slate-200 transition-colors"
+                        title="ดูรายละเอียดคำร้อง"
+                      >
+                        <Eye size={15} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {filteredPhotoIssues.length === 0 && (
+            <div className="bg-white p-12 text-center rounded-3xl border border-slate-200 text-slate-500">
+              <Camera size={44} className="mx-auto text-slate-300 mb-2" />
+              <p className="text-base font-bold text-slate-700">ไม่พบรายการปัญหาตามเงื่อนไขที่เลือก</p>
+              <p className="text-xs text-slate-400 mt-1">ลองเปลี่ยนคำค้นหา หรือปรับตัวกรองสถานะรูปภาพ</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 3. STAFF APPLICATION REQUESTS SUB-TAB (SUPER ADMIN WORKFLOW) */}
       {/* ========================================================================= */}
       {activeSubTab === 'staff_requests' && (
         <div className="space-y-6 animate-in fade-in duration-200">
@@ -2473,6 +2942,21 @@ export const BackendSettingsView: React.FC<BackendSettingsViewProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Admin Image Edit Modal */}
+      {photoEditingIssue && (
+        <AdminImageEditModal
+          issue={photoEditingIssue}
+          currentUser={currentUser}
+          onClose={() => setPhotoEditingIssue(null)}
+          onSave={async (updated) => {
+            if (onUpdateIssue) {
+              await onUpdateIssue(updated);
+            }
+            setPhotoEditingIssue(null);
+          }}
+        />
       )}
     </div>
   );

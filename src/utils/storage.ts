@@ -1,11 +1,13 @@
 import { INITIAL_ISSUES, INITIAL_USERS } from '../data/mockData';
-import { Issue, User } from '../types';
+import { Issue, User, CategoryMeta, CategoryType } from '../types';
+import { CATEGORIES } from '../data/categories';
 
 const STORAGE_KEY_ISSUES = 'community_care_issues_v1';
 const STORAGE_KEY_USER = 'community_care_active_user_v1';
 const STORAGE_KEY_USERS_LIST = 'community_care_all_users_v1';
 const STORAGE_KEY_AUTH_STATUS = 'community_care_auth_status_v3';
 const STORAGE_KEY_REMEMBER_ME = 'community_care_remember_me_v1';
+const STORAGE_KEY_CATEGORIES = 'community_care_categories_v1';
 
 export function getStoredIsLoggedIn(): boolean {
   try {
@@ -62,9 +64,60 @@ export function getStoredIssues(): Issue[] {
 
 export function saveStoredIssues(issues: Issue[]): void {
   try {
-    localStorage.setItem(STORAGE_KEY_ISSUES, JSON.stringify(issues));
+    // Sanitize issues for localStorage by trimming huge base64 data URLs > 50KB
+    // so they do not exhaust the browser's 5MB localStorage domain quota.
+    const lightweightIssues = issues.map((issue) => {
+      let img = issue.imageUrl;
+      let afterImg = issue.afterImageUrl;
+      let addImgs = issue.additionalImages;
+
+      if (img && img.startsWith('data:') && img.length > 50000) {
+        // Keep a short thumbnail/stub in localStorage cache
+        img = img.slice(0, 50000);
+      }
+      if (afterImg && afterImg.startsWith('data:') && afterImg.length > 50000) {
+        afterImg = afterImg.slice(0, 50000);
+      }
+      if (addImgs && addImgs.length > 0) {
+        addImgs = addImgs.map((ai) =>
+          ai.startsWith('data:') && ai.length > 30000 ? ai.slice(0, 30000) : ai
+        );
+      }
+
+      return {
+        ...issue,
+        imageUrl: img,
+        afterImageUrl: afterImg,
+        additionalImages: addImgs,
+        timeline: issue.timeline?.map((tl) => ({
+          ...tl,
+          photoUrl:
+            tl.photoUrl && tl.photoUrl.startsWith('data:') && tl.photoUrl.length > 15000
+              ? undefined
+              : tl.photoUrl,
+        })),
+      };
+    });
+
+    localStorage.setItem(STORAGE_KEY_ISSUES, JSON.stringify(lightweightIssues));
   } catch (e) {
-    console.error('Failed to save issues to localStorage', e);
+    console.warn('LocalStorage quota warning, falling back to minimal issues cache:', e);
+    try {
+      // Emergency fallback: remove all base64 data URLs from localStorage cache
+      const minimalIssues = issues.map((iss) => ({
+        ...iss,
+        imageUrl: iss.imageUrl?.startsWith('data:') ? '' : iss.imageUrl,
+        afterImageUrl: iss.afterImageUrl?.startsWith('data:') ? '' : iss.afterImageUrl,
+        additionalImages: iss.additionalImages?.filter((img) => !img.startsWith('data:')),
+        timeline: iss.timeline?.map((tl) => ({
+          ...tl,
+          photoUrl: tl.photoUrl?.startsWith('data:') ? undefined : tl.photoUrl,
+        })),
+      }));
+      localStorage.setItem(STORAGE_KEY_ISSUES, JSON.stringify(minimalIssues));
+    } catch {
+      // If even minimal fails, do not throw or crash
+    }
   }
 }
 
@@ -166,3 +219,49 @@ export function generateTicketCode(existingIssues: Issue[]): string {
   const pad = String(nextNum).padStart(3, '0');
   return `CC-${currentYear}-${pad}`;
 }
+
+export function getStoredCategories(): CategoryMeta[] {
+  try {
+    const data = localStorage.getItem(STORAGE_KEY_CATEGORIES);
+    if (data) {
+      const parsed: CategoryMeta[] = JSON.parse(data);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return CATEGORIES.map((cat) => {
+          const match = parsed.find((p) => p.id === cat.id);
+          return match ? { ...cat, ...match } : cat;
+        });
+      }
+    }
+  } catch (e) {
+    console.error('Failed to parse categories from localStorage:', e);
+  }
+  return CATEGORIES;
+}
+
+export function saveStoredCategories(categories: CategoryMeta[]): void {
+  try {
+    localStorage.setItem(STORAGE_KEY_CATEGORIES, JSON.stringify(categories));
+  } catch (e) {
+    console.warn('Failed to save categories to localStorage:', e);
+  }
+}
+
+export function updateStoredCategoryPhoto(catId: CategoryType, newPhotoUrl: string): CategoryMeta[] {
+  const current = getStoredCategories();
+  const updated = current.map((cat) => {
+    if (cat.id === catId) {
+      return {
+        ...cat,
+        realPhotoUrl: newPhotoUrl,
+        photoExamples: [
+          { url: newPhotoUrl, title: `ภาพจริงอัปเดต (${cat.label})`, description: 'ภาพถ่ายจริงที่อัปเดตโดยแอดมิน' },
+          ...(cat.photoExamples?.filter((p) => p.url !== newPhotoUrl) || []),
+        ],
+      };
+    }
+    return cat;
+  });
+  saveStoredCategories(updated);
+  return updated;
+}
+

@@ -18,7 +18,7 @@ import {
   Shield,
   Zap,
 } from 'lucide-react';
-import { CategoryType, Issue, UrgencyLevel, User } from '../types';
+import { CategoryType, Issue, UrgencyLevel, User, CategoryMeta } from '../types';
 import { CATEGORIES } from '../data/categories';
 import { CategoryIcon } from './CategoryIcon';
 import { generateTicketCode } from '../utils/storage';
@@ -31,6 +31,8 @@ import {
   getVillagesBySubDistrict,
 } from '../data/prasatLocations';
 import { ElephantMascot, PrasatIcon, SurinCommunityBadge } from './SurinMotifs';
+import { processAndCompressImage, formatFileSize } from '../utils/imageUpload';
+import { CategoryPhotoEditModal } from './CategoryPhotoEditModal';
 
 interface ReportIssueViewProps {
   currentUser: User;
@@ -38,39 +40,10 @@ interface ReportIssueViewProps {
   onSubmitIssue: (newIssue: Issue) => void;
   onCancel: () => void;
   onViewIssue: (issue: Issue) => void;
+  categories?: CategoryMeta[];
+  onUpdateCategoryPhoto?: (catId: CategoryType, newPhotoUrl: string) => Promise<void> | void;
+  onResetCategoryPhoto?: (catId: CategoryType) => Promise<void> | void;
 }
-
-// Preset photo options for quick testing
-const PRESET_PHOTOS: Record<CategoryType, string[]> = {
-  road: [
-    'https://images.unsplash.com/photo-1515162816999-a0c47dc192f7?w=800&auto=format&fit=crop&q=80',
-    'https://images.unsplash.com/photo-1506521781263-d8422e82f27a?w=800&auto=format&fit=crop&q=80',
-  ],
-  street_light: [
-    'https://images.unsplash.com/photo-1509198397868-475647b2a1e5?w=800&auto=format&fit=crop&q=80',
-    'https://images.unsplash.com/photo-1513836279014-a89f7a76ae86?w=800&auto=format&fit=crop&q=80',
-  ],
-  garbage: [
-    'https://images.unsplash.com/photo-1532996122724-e3c354a0b15b?w=800&auto=format&fit=crop&q=80',
-    'https://images.unsplash.com/photo-1605600659908-0ef719419d41?w=800&auto=format&fit=crop&q=80',
-  ],
-  water_supply: [
-    'https://images.unsplash.com/photo-1541888946425-d0fbb186c5f8?w=800&auto=format&fit=crop&q=80',
-    'https://images.unsplash.com/photo-1527443224154-c4a3942d3acf?w=800&auto=format&fit=crop&q=80',
-  ],
-  tree_blocking: [
-    'https://images.unsplash.com/photo-1542273917363-3b1817f69a2d?w=800&auto=format&fit=crop&q=80',
-  ],
-  road_obstacle: [
-    'https://images.unsplash.com/photo-1504307651254-35680f356dfd?w=800&auto=format&fit=crop&q=80',
-  ],
-  noise: [
-    'https://images.unsplash.com/photo-1541888946425-d0fbb186c5f8?w=800&auto=format&fit=crop&q=80',
-  ],
-  other: [
-    'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=800&auto=format&fit=crop&q=80',
-  ],
-};
 
 export const ReportIssueView: React.FC<ReportIssueViewProps> = ({
   currentUser,
@@ -78,7 +51,26 @@ export const ReportIssueView: React.FC<ReportIssueViewProps> = ({
   onSubmitIssue,
   onCancel,
   onViewIssue,
+  categories = CATEGORIES,
+  onUpdateCategoryPhoto,
+  onResetCategoryPhoto,
 }) => {
+  const [editingCategory, setEditingCategory] = useState<CategoryMeta | null>(null);
+
+  const isOfficer =
+    currentUser.role === 'officer' ||
+    currentUser.role === 'admin' ||
+    currentUser.role === 'staff' ||
+    currentUser.role === 'super_admin';
+
+  // Preset photo options populated dynamically from categories with authentic real photography
+  const PRESET_PHOTOS: Record<CategoryType, string[]> = categories.reduce((acc, cat) => {
+    acc[cat.id] =
+      cat.photoExamples && cat.photoExamples.length > 0
+        ? cat.photoExamples.map((p) => p.url)
+        : [cat.realPhotoUrl];
+    return acc;
+  }, {} as Record<CategoryType, string[]>);
   const [category, setCategory] = useState<CategoryType>('road');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -105,6 +97,9 @@ export const ReportIssueView: React.FC<ReportIssueViewProps> = ({
   const [imageUrl, setImageUrl] = useState(PRESET_PHOTOS.road[0]);
   const [isCustomImage, setIsCustomImage] = useState(false);
   const [customImageUrl, setCustomImageUrl] = useState('');
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadMessage, setUploadMessage] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [createdIssue, setCreatedIssue] = useState<Issue | null>(null);
@@ -163,17 +158,27 @@ export const ReportIssueView: React.FC<ReportIssueViewProps> = ({
     }
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (reader.result) {
-          setImageUrl(reader.result as string);
-          setIsCustomImage(true);
-        }
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+
+    setIsUploading(true);
+    setUploadError(null);
+    setUploadMessage(null);
+
+    try {
+      const res = await processAndCompressImage(file);
+      setImageUrl(res.dataUrl);
+      setIsCustomImage(true);
+      setUploadMessage(
+        `อัปโหลด ${res.fileName} สำเร็จ (${formatFileSize(res.originalSize)} → ${formatFileSize(res.compressedSize)})`
+      );
+    } catch (err: any) {
+      console.error('File upload failed:', err);
+      setUploadError(err.message || 'เกิดข้อผิดพลาดในการโหลดรูปภาพ');
+    } finally {
+      setIsUploading(false);
+      e.target.value = '';
     }
   };
 
@@ -241,7 +246,7 @@ export const ReportIssueView: React.FC<ReportIssueViewProps> = ({
       longitude,
       reporterName: reporterName.trim(),
       reporterPhone: reporterPhone.trim(),
-      reporterEmail: reporterEmail.trim() || undefined,
+      ...(reporterEmail.trim() ? { reporterEmail: reporterEmail.trim() } : {}),
       imageUrl: isCustomImage && customImageUrl ? customImageUrl : imageUrl,
       createdAt: now,
       updatedAt: now,
@@ -380,45 +385,102 @@ export const ReportIssueView: React.FC<ReportIssueViewProps> = ({
         <form onSubmit={handleSubmit} className="p-6 sm:p-8 space-y-8">
           {/* Step 1: Category Selection */}
           <div>
-            <div className="flex items-center justify-between mb-3">
-              <label className="text-sm font-bold text-slate-900 flex items-center gap-2">
+            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+              <label className="text-sm font-bold text-slate-900 flex items-center gap-2 flex-wrap">
                 <span className="w-5 h-5 rounded-full bg-teal-600 text-white text-xs flex items-center justify-center font-bold">
                   1
                 </span>
                 <span>เลือกประเภทปัญหา *</span>
+                {isOfficer && (
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300 flex items-center gap-1 shadow-2xs">
+                    <Camera size={11} className="text-amber-700" />
+                    <span>แอดมิน: เปลี่ยนภาพหมวดหมู่จากเครื่องได้</span>
+                  </span>
+                )}
               </label>
               <span className="text-xs text-slate-400">เลือก 1 ประเภทที่ตรงที่สุด</span>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3">
-              {CATEGORIES.map((cat) => {
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+              {categories.map((cat) => {
                 const isSelected = category === cat.id;
                 return (
-                  <button
-                    key={cat.id}
-                    type="button"
-                    onClick={() => handleCategorySelect(cat.id)}
-                    className={`p-3 rounded-2xl border text-left transition-all relative flex flex-col items-start gap-2 ${
-                      isSelected
-                        ? 'border-teal-500 bg-teal-50/70 shadow-xs ring-2 ring-teal-500/20'
-                        : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
-                    }`}
-                  >
-                    <div
-                      className="w-9 h-9 rounded-xl flex items-center justify-center text-white shrink-0 shadow-2xs"
-                      style={{ backgroundColor: cat.color }}
+                  <div key={cat.id} className="relative group/card flex flex-col">
+                    <button
+                      type="button"
+                      onClick={() => handleCategorySelect(cat.id)}
+                      className={`w-full rounded-2xl border text-left transition-all relative overflow-hidden flex flex-col group cursor-pointer flex-1 ${
+                        isSelected
+                          ? 'border-emerald-600 bg-emerald-50/80 shadow-md ring-2 ring-emerald-600/30'
+                          : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-xs'
+                      }`}
                     >
-                      <CategoryIcon category={cat.id} size={18} />
-                    </div>
-                    <span className="text-xs font-bold text-slate-900 leading-tight">
-                      {cat.label}
-                    </span>
-                    {isSelected && (
-                      <div className="absolute top-2.5 right-2.5 w-4 h-4 rounded-full bg-teal-600 text-white flex items-center justify-center">
-                        <Check size={10} strokeWidth={3} />
+                      {/* Real photo header */}
+                      <div className="relative h-24 sm:h-28 w-full bg-slate-100 overflow-hidden">
+                        <img
+                          src={cat.realPhotoUrl}
+                          alt={cat.label}
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                          loading="lazy"
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/20 to-transparent" />
+
+                        {/* Real photo badge */}
+                        <span className="absolute top-2 left-2 text-[9px] font-bold px-1.5 py-0.5 rounded bg-black/70 text-emerald-300 backdrop-blur-xs border border-white/20 flex items-center gap-1 shadow-xs">
+                          <Camera size={10} className="text-emerald-400" />
+                          <span>ภาพจริง</span>
+                        </span>
+
+                        {isSelected && !isOfficer && (
+                          <div className="absolute top-2 right-2 w-5 h-5 rounded-full bg-emerald-600 text-white flex items-center justify-center shadow-md">
+                            <Check size={12} strokeWidth={3} />
+                          </div>
+                        )}
+
+                        <div className="absolute bottom-1.5 left-2.5 right-2.5">
+                          <span className="text-xs sm:text-sm font-extrabold text-white drop-shadow-md flex items-center gap-1.5 truncate">
+                            <CategoryIcon category={cat.id} size={14} className="shrink-0 text-amber-300" />
+                            <span>{cat.label}</span>
+                          </span>
+                        </div>
                       </div>
+
+                      {/* Card Description */}
+                      <div className="p-2.5 sm:p-3 flex-1 flex flex-col justify-between space-y-2">
+                        <p className="text-[11px] text-slate-600 line-clamp-2 leading-snug">
+                          {cat.description}
+                        </p>
+                        <div className="flex items-center justify-between pt-1 border-t border-slate-100">
+                          <span className="text-[9px] font-semibold text-emerald-800 bg-emerald-100/70 px-1.5 py-0.5 rounded">
+                            {cat.photoExamples?.length || 1} ภาพจริง
+                          </span>
+                          <span
+                            className={`text-[10px] font-bold ${
+                              isSelected ? 'text-emerald-700' : 'text-slate-400 group-hover:text-slate-600'
+                            }`}
+                          >
+                            {isSelected ? '✓ เลือกแล้ว' : 'คลิกเลือก'}
+                          </span>
+                        </div>
+                      </div>
+                    </button>
+
+                    {/* Admin Quick Upload / Change Photo Button */}
+                    {isOfficer && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingCategory(cat);
+                        }}
+                        className="absolute top-2 right-2 z-20 px-2 py-1 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 text-[10px] font-extrabold shadow-md flex items-center gap-1 transition-transform hover:scale-105 active:scale-95 cursor-pointer opacity-90 group-hover/card:opacity-100"
+                        title={`แอดมิน: เปลี่ยนภาพหมวดหมู่ "${cat.label}" โดยอัปโหลดจากเครื่อง`}
+                      >
+                        <Camera size={11} className="text-slate-950 shrink-0" />
+                        <span>เปลี่ยนภาพ</span>
+                      </button>
                     )}
-                  </button>
+                  </div>
                 );
               })}
             </div>
@@ -855,28 +917,74 @@ export const ReportIssueView: React.FC<ReportIssueViewProps> = ({
               </div>
 
               <div className="sm:col-span-6 flex flex-col justify-between space-y-3">
-                {/* File Upload drag-and-drop / select supporting JPG, JPEG, PNG, WebP */}
-                <div className="border-2 border-dashed border-teal-300 rounded-2xl p-4 text-center hover:border-teal-500 bg-teal-50/30 transition-colors relative">
-                  <input
-                    type="file"
-                    accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
-                    onChange={handleFileUpload}
-                    className="absolute inset-0 opacity-0 cursor-pointer w-full h-full z-10"
-                  />
-                  <Upload className="mx-auto text-teal-700 mb-1" size={24} />
-                  <p className="text-xs font-bold text-slate-800">
-                    อัปโหลดภาพถ่ายจริงจากกล้องหรือมือถือ
+                {/* File Upload from Machine / Camera */}
+                <div className="border-2 border-dashed border-teal-300 rounded-2xl p-4 text-center bg-teal-50/40 space-y-2.5">
+                  <div className="flex items-center justify-center gap-1.5 text-teal-800 text-xs font-bold">
+                    <Upload size={16} className="text-teal-700" />
+                    <span>อัปโหลดภาพถ่ายจริงจากเครื่อง หรือถ่ายรูป</span>
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    รองรับไฟล์ JPG, PNG, WebP, GIF ระบบปรับขนาดและบีบอัดอัตโนมัติ ไม่เปลืองเน็ต
                   </p>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
-                    รองรับไฟล์: JPG, JPEG, PNG, WebP
-                  </p>
+
+                  {/* Upload feedback */}
+                  {isUploading && (
+                    <div className="p-2 bg-teal-100/70 border border-teal-200 rounded-xl text-xs text-teal-800 flex items-center justify-center gap-2">
+                      <span className="w-3.5 h-3.5 border-2 border-teal-700 border-t-transparent rounded-full animate-spin" />
+                      <span>กำลังประมวลผลและย่อขนาดรูปภาพ...</span>
+                    </div>
+                  )}
+
+                  {uploadMessage && !isUploading && (
+                    <div className="p-2 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 flex items-center justify-center gap-1.5">
+                      <CheckCircle2 size={14} className="text-emerald-600 shrink-0" />
+                      <span>{uploadMessage}</span>
+                    </div>
+                  )}
+
+                  {uploadError && !isUploading && (
+                    <div className="p-2 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-center justify-center gap-1.5">
+                      <AlertCircle size={14} className="text-rose-600 shrink-0" />
+                      <span>{uploadError}</span>
+                    </div>
+                  )}
+
+                  {/* Dual Action Buttons: 1) Device Gallery/Files, 2) Live Camera */}
+                  <div className="grid grid-cols-2 gap-2 pt-1">
+                    <label className="flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl border border-teal-500 bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold cursor-pointer transition-colors shadow-2xs">
+                      <Upload size={14} />
+                      <span>📁 เลือกรูปจากเครื่อง</span>
+                      <input
+                        type="file"
+                        accept="image/*,.jpg,.jpeg,.png,.webp,.gif,.bmp"
+                        onChange={handleFileUpload}
+                        className="hidden"
+                      />
+                    </label>
+
+                    <label className="flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 text-xs font-semibold cursor-pointer transition-colors">
+                      <Camera size={14} className="text-slate-600" />
+                      <span>📸 ถ่ายรูปสด</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        onChange={handleFileUpload}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
                 </div>
 
                 {/* Preset quick picker for realistic issue photography */}
                 <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-[11px] font-semibold text-slate-600">
-                      หรือเลือกภาพตัวอย่างเหตุการณ์จริง ({CATEGORIES.find((c) => c.id === category)?.label}):
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5">
+                      <Camera size={13} className="text-emerald-600" />
+                      <span>เลือกภาพเหตุการณ์จริง ({CATEGORIES.find((c) => c.id === category)?.label})</span>
+                      <span className="text-[10px] font-normal text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
+                        ไม่ใช่ภาพ AI
+                      </span>
                     </span>
                     <button
                       type="button"
@@ -889,29 +997,63 @@ export const ReportIssueView: React.FC<ReportIssueViewProps> = ({
                       เลือก "ยังไม่มีภาพ"
                     </button>
                   </div>
-                  <div className="flex gap-2">
-                    {(PRESET_PHOTOS[category] || PRESET_PHOTOS.road).map((url, i) => (
-                      <button
-                        key={i}
-                        type="button"
-                        onClick={() => {
-                          setImageUrl(url);
-                          setIsCustomImage(false);
-                          setCustomImageUrl('');
-                        }}
-                        className={`w-14 h-14 rounded-xl overflow-hidden border-2 transition-all relative group ${
-                          imageUrl === url && !isCustomImage
-                            ? 'border-teal-600 ring-2 ring-teal-200'
-                            : 'border-slate-200 opacity-70 hover:opacity-100'
-                        }`}
-                      >
-                        <img src={url} alt={`ภาพจริง ${i + 1}`} className="w-full h-full object-cover" />
-                        <span className="absolute bottom-0 inset-x-0 bg-black/60 text-[8px] text-white text-center py-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                          ภาพจริง
-                        </span>
-                      </button>
-                    ))}
-                  </div>
+                  {(() => {
+                    const currentCat = CATEGORIES.find((c) => c.id === category);
+                    const examples =
+                      currentCat?.photoExamples && currentCat.photoExamples.length > 0
+                        ? currentCat.photoExamples
+                        : (PRESET_PHOTOS[category] || PRESET_PHOTOS.road).map((url, i) => ({
+                            url,
+                            title: `ภาพจริง ${i + 1}`,
+                            description: 'ภาพถ่ายจากสถานที่จริง',
+                          }));
+
+                    return (
+                      <div className="grid grid-cols-3 gap-2">
+                        {examples.map((item, i) => {
+                          const isSelected = imageUrl === item.url && !isCustomImage;
+                          return (
+                            <button
+                              key={i}
+                              type="button"
+                              onClick={() => {
+                                setImageUrl(item.url);
+                                setIsCustomImage(false);
+                                setCustomImageUrl('');
+                              }}
+                              className={`rounded-xl overflow-hidden border-2 transition-all text-left flex flex-col group cursor-pointer bg-white ${
+                                isSelected
+                                  ? 'border-emerald-600 ring-2 ring-emerald-200 shadow-xs'
+                                  : 'border-slate-200 hover:border-slate-400 opacity-80 hover:opacity-100'
+                              }`}
+                            >
+                              <div className="relative h-16 w-full bg-slate-100 overflow-hidden">
+                                <img
+                                  src={item.url}
+                                  alt={item.title}
+                                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                                />
+                                <span className="absolute top-1 left-1 bg-black/70 text-[8px] font-bold text-emerald-300 px-1 py-0.5 rounded backdrop-blur-xs flex items-center gap-0.5">
+                                  <Camera size={8} />
+                                  <span>ภาพจริง</span>
+                                </span>
+                                {isSelected && (
+                                  <div className="absolute top-1 right-1 w-4 h-4 rounded-full bg-emerald-600 text-white flex items-center justify-center shadow-xs">
+                                    <Check size={10} strokeWidth={3} />
+                                  </div>
+                                )}
+                              </div>
+                              <div className="p-1.5">
+                                <p className="text-[10px] font-semibold text-slate-800 line-clamp-1 leading-tight">
+                                  {item.title}
+                                </p>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
             </div>
@@ -999,6 +1141,23 @@ export const ReportIssueView: React.FC<ReportIssueViewProps> = ({
           </div>
         </form>
       </div>
+
+      {/* Admin Category Photo Edit Modal */}
+      <CategoryPhotoEditModal
+        category={editingCategory}
+        isOpen={Boolean(editingCategory)}
+        onClose={() => setEditingCategory(null)}
+        onSavePhoto={async (catId, newUrl) => {
+          if (onUpdateCategoryPhoto) {
+            await onUpdateCategoryPhoto(catId, newUrl);
+          }
+        }}
+        onResetToDefault={async (catId) => {
+          if (onResetCategoryPhoto) {
+            await onResetCategoryPhoto(catId);
+          }
+        }}
+      />
     </div>
   );
 };

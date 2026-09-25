@@ -16,8 +16,10 @@ import {
   Compass,
   Building2,
   Layers,
+  Camera,
+  Edit,
 } from 'lucide-react';
-import { CategoryType, Issue, IssueStatus, AppTab } from '../types';
+import { CategoryType, Issue, IssueStatus, AppTab, User, CategoryMeta } from '../types';
 import { CATEGORIES } from '../data/categories';
 import { CategoryIcon } from './CategoryIcon';
 import { StatusBadge } from './StatusBadge';
@@ -29,12 +31,17 @@ import {
   SurinSilkRibbon,
   SurinCommunityBadge,
 } from './SurinMotifs';
+import { CategoryPhotoEditModal } from './CategoryPhotoEditModal';
 
 interface HomeViewProps {
   issues: Issue[];
   onNavigate: (tab: AppTab) => void;
   onSelectIssue: (issue: Issue) => void;
   onQuickSearch: (query: string) => void;
+  currentUser?: User;
+  categories?: CategoryMeta[];
+  onUpdateCategoryPhoto?: (catId: CategoryType, newPhotoUrl: string) => Promise<void> | void;
+  onResetCategoryPhoto?: (catId: CategoryType) => Promise<void> | void;
 }
 
 export const HomeView: React.FC<HomeViewProps> = ({
@@ -42,10 +49,21 @@ export const HomeView: React.FC<HomeViewProps> = ({
   onNavigate,
   onSelectIssue,
   onQuickSearch,
+  currentUser,
+  categories = CATEGORIES,
+  onUpdateCategoryPhoto,
+  onResetCategoryPhoto,
 }) => {
   const [quickTicketInput, setQuickTicketInput] = useState('');
   const [selectedCategoryTab, setSelectedCategoryTab] = useState<CategoryType | 'all'>('all');
   const [selectedSubDistrictTab, setSelectedSubDistrictTab] = useState<string>('all');
+  const [editingCategory, setEditingCategory] = useState<CategoryMeta | null>(null);
+
+  const isOfficer =
+    currentUser?.role === 'officer' ||
+    currentUser?.role === 'admin' ||
+    currentUser?.role === 'staff' ||
+    currentUser?.role === 'super_admin';
 
   const totalCount = issues.length;
   const pendingCount = issues.filter((i) => i.status === 'pending').length;
@@ -293,48 +311,108 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
       {/* Category Icons Showcase */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
           <div>
-            <h2 className="text-lg sm:text-xl font-bold text-slate-900">
-              หมวดหมู่ปัญหาที่รับแจ้ง (Categories)
-            </h2>
-            <p className="text-xs sm:text-sm text-slate-500">
-              คลิกหมวดหมู่เพื่อดูเรื่องที่เกี่ยวข้อง หรือแจ้งปัญหาในหมวดนั้น
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="text-lg sm:text-xl font-bold text-slate-900">
+                หมวดหมู่ปัญหาที่รับแจ้ง (Categories)
+              </h2>
+              {isOfficer && (
+                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-900 border border-amber-300 flex items-center gap-1.5 shadow-2xs">
+                  <Camera size={12} className="text-amber-700" />
+                  <span>โหมดแอดมิน: เปลี่ยนรูปภาพจากเครื่องได้</span>
+                </span>
+              )}
+            </div>
+            <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
+              {isOfficer
+                ? 'แอดมินสามารถคลิกปุ่มกล้อง 📷 บนการ์ดเพื่ออัปโหลดภาพจริงใหม่จากเครื่องคอมพิวเตอร์ หรือคลิกการ์ดเพื่อกรองปัญหา'
+                : 'คลิกหมวดหมู่เพื่อดูเรื่องที่เกี่ยวข้อง หรือแจ้งปัญหาในหมวดนั้น'}
             </p>
           </div>
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
-          {CATEGORIES.map((cat) => {
+          {categories.map((cat) => {
             const count = issues.filter((i) => i.category === cat.id).length;
             const isSelected = selectedCategoryTab === cat.id;
 
             return (
-              <button
-                key={cat.id}
-                type="button"
-                onClick={() => setSelectedCategoryTab(isSelected ? 'all' : cat.id)}
-                className={`p-3.5 rounded-2xl border text-center transition-all flex flex-col items-center justify-center gap-2 group cursor-pointer ${
-                  isSelected
-                    ? 'border-emerald-700 bg-emerald-50 shadow-xs ring-2 ring-emerald-700/20'
-                    : 'border-slate-200/80 bg-white hover:border-emerald-300 hover:shadow-xs'
-                }`}
-              >
-                <div
-                  className="w-10 h-10 rounded-xl flex items-center justify-center text-white shadow-2xs group-hover:scale-105 transition-transform"
-                  style={{ backgroundColor: cat.color }}
+              <div key={cat.id} className="relative group/card">
+                <button
+                  type="button"
+                  onClick={() => setSelectedCategoryTab(isSelected ? 'all' : cat.id)}
+                  className={`w-full rounded-2xl border text-center transition-all overflow-hidden flex flex-col group cursor-pointer ${
+                    isSelected
+                      ? 'border-emerald-700 bg-emerald-50 shadow-md ring-2 ring-emerald-700/20'
+                      : 'border-slate-200/80 bg-white hover:border-emerald-300 hover:shadow-xs'
+                  }`}
                 >
-                  <CategoryIcon category={cat.id} size={18} />
-                </div>
-                <span className="text-xs font-bold text-slate-800 line-clamp-1">{cat.label}</span>
-                <span className="text-[10px] text-slate-500 font-medium px-2 py-0.5 rounded-full bg-slate-100">
-                  {count} เรื่อง
-                </span>
-              </button>
+                  {/* Real photo header */}
+                  <div className="relative w-full h-16 bg-slate-100 overflow-hidden">
+                    <img
+                      src={cat.realPhotoUrl}
+                      alt={cat.label}
+                      className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
+                      loading="lazy"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+                    <div
+                      className="absolute bottom-1 right-1 w-6 h-6 rounded-md flex items-center justify-center text-white shadow-2xs"
+                      style={{ backgroundColor: cat.color }}
+                    >
+                      <CategoryIcon category={cat.id} size={12} />
+                    </div>
+                    <span className="absolute top-1 left-1 text-[8px] font-bold px-1 py-0.2 rounded bg-black/60 text-emerald-300">
+                      ภาพจริง
+                    </span>
+                  </div>
+
+                  <div className="p-2.5 flex flex-col items-center gap-1">
+                    <span className="text-xs font-bold text-slate-800 line-clamp-1">{cat.label}</span>
+                    <span className="text-[10px] text-slate-500 font-medium px-2 py-0.5 rounded-full bg-slate-100">
+                      {count} เรื่อง
+                    </span>
+                  </div>
+                </button>
+
+                {/* Admin Quick Upload / Change Photo Button */}
+                {isOfficer && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setEditingCategory(cat);
+                    }}
+                    className="absolute top-1.5 right-1.5 z-10 px-1.5 py-1 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 text-[10px] font-extrabold shadow-md flex items-center gap-1 transition-transform hover:scale-105 active:scale-95 cursor-pointer opacity-90 group-hover/card:opacity-100"
+                    title={`แอดมิน: เปลี่ยนภาพหมวดหมู่ "${cat.label}" โดยอัปโหลดจากเครื่อง`}
+                  >
+                    <Camera size={11} className="text-slate-950 shrink-0" />
+                    <span className="hidden xl:inline">เปลี่ยนภาพ</span>
+                  </button>
+                )}
+              </div>
             );
           })}
         </div>
       </section>
+
+      {/* Admin Category Photo Edit Modal */}
+      <CategoryPhotoEditModal
+        category={editingCategory}
+        isOpen={Boolean(editingCategory)}
+        onClose={() => setEditingCategory(null)}
+        onSavePhoto={async (catId, newUrl) => {
+          if (onUpdateCategoryPhoto) {
+            await onUpdateCategoryPhoto(catId, newUrl);
+          }
+        }}
+        onResetToDefault={async (catId) => {
+          if (onResetCategoryPhoto) {
+            await onResetCategoryPhoto(catId);
+          }
+        }}
+      />
 
       {/* Latest Issues Section */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-4">

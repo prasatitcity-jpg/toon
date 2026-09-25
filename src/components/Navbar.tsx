@@ -18,6 +18,7 @@ import {
   Database,
   Settings,
   BarChart3,
+  Eye,
 } from 'lucide-react';
 import { User, TicketNotification, AppTab } from '../types';
 import { ElephantMascot, PrasatIcon, SurinSilkRibbon } from './SurinMotifs';
@@ -78,7 +79,22 @@ export const Navbar: React.FC<NavbarProps> = ({
           {/* Logo - Prasat Community Care */}
           <div
             id="brand-logo"
-            onClick={() => handleNavClick(isOfficer ? 'officer' : 'home')}
+            onClick={() => {
+              if (isOfficer) {
+                if (
+                  currentTab === 'home' ||
+                  currentTab === 'report' ||
+                  currentTab === 'track' ||
+                  currentTab === 'my_history'
+                ) {
+                  handleNavClick('home');
+                } else {
+                  handleNavClick('officer');
+                }
+              } else {
+                handleNavClick('home');
+              }
+            }}
             className="flex items-center gap-3 cursor-pointer group select-none"
           >
             <div className="relative">
@@ -195,9 +211,56 @@ export const Navbar: React.FC<NavbarProps> = ({
               </>
             )}
 
-            {/* Officer Nav Items */}
+            {/* Officer Nav Items: Admins can see Citizen Views AND Admin Desk */}
             {isOfficer && (
               <>
+                <button
+                  id="nav-officer-home"
+                  type="button"
+                  onClick={() => handleNavClick('home')}
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs xl:text-sm font-medium transition-colors ${
+                    currentTab === 'home'
+                      ? 'bg-emerald-50 text-emerald-800 font-bold border border-emerald-200'
+                      : 'text-slate-600 hover:text-emerald-800 hover:bg-slate-50'
+                  }`}
+                  title="ดูหน้าหลักทั่วไปของประชาชน"
+                >
+                  <Home size={16} />
+                  <span>หน้าหลัก</span>
+                </button>
+
+                <button
+                  id="nav-officer-track"
+                  type="button"
+                  onClick={() => handleNavClick('track')}
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs xl:text-sm font-medium transition-colors ${
+                    currentTab === 'track'
+                      ? 'bg-emerald-50 text-emerald-800 font-bold border border-emerald-200'
+                      : 'text-slate-600 hover:text-emerald-800 hover:bg-slate-50'
+                  }`}
+                  title="ดูหน้าค้นหาและติดตามปัญหาของประชาชน"
+                >
+                  <Search size={16} />
+                  <span>ติดตามปัญหา</span>
+                </button>
+
+                <button
+                  id="nav-officer-map"
+                  type="button"
+                  onClick={() => handleNavClick('map')}
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs xl:text-sm font-medium transition-colors ${
+                    currentTab === 'map'
+                      ? 'bg-emerald-50 text-emerald-800 font-bold border border-emerald-200'
+                      : 'text-slate-600 hover:text-emerald-800 hover:bg-slate-50'
+                  }`}
+                  title="แผนที่ปัญหาชุมชน"
+                >
+                  <MapPin size={16} />
+                  <span>แผนที่</span>
+                </button>
+
+                <div className="h-5 w-px bg-slate-200 mx-1"></div>
+
                 <button
                   id="nav-officer-dashboard"
                   type="button"
@@ -207,6 +270,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                       ? 'bg-amber-50 text-amber-900 border border-amber-300 shadow-2xs'
                       : 'text-slate-700 hover:text-amber-800 hover:bg-amber-50/60'
                   }`}
+                  title="โต๊ะปฏิบัติการเจ้าหน้าที่"
                 >
                   <LayoutDashboard size={17} className="text-amber-700" />
                   <span>Dashboard เจ้าหน้าที่</span>
@@ -218,56 +282,15 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </button>
 
                 <button
-                  id="nav-officer-map"
-                  type="button"
-                  onClick={() => handleNavClick('map')}
-                  className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs xl:text-sm font-medium transition-colors ${
-                    currentTab === 'map'
-                      ? 'bg-emerald-50 text-emerald-800 font-bold'
-                      : 'text-slate-600 hover:text-emerald-800 hover:bg-slate-50'
-                  }`}
-                >
-                  <MapPin size={16} />
-                  <span>แผนที่ปัญหาชุมชน</span>
-                </button>
-
-                <button
-                  id="nav-officer-hotlines"
-                  type="button"
-                  onClick={() => handleNavClick('hotlines')}
-                  className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs xl:text-sm font-medium transition-colors ${
-                    currentTab === 'hotlines'
-                      ? 'bg-emerald-50 text-emerald-800 font-bold'
-                      : 'text-slate-600 hover:text-emerald-800 hover:bg-slate-50'
-                  }`}
-                >
-                  <PhoneCall size={16} />
-                  <span>หน่วยงาน & สายด่วน</span>
-                </button>
-
-                <button
-                  id="nav-officer-members"
-                  type="button"
-                  onClick={() => handleNavClick('online_members')}
-                  className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs xl:text-sm font-medium transition-colors ${
-                    currentTab === 'online_members'
-                      ? 'bg-emerald-50 text-emerald-800 font-bold'
-                      : 'text-slate-600 hover:text-emerald-800 hover:bg-slate-50'
-                  }`}
-                >
-                  <Users size={16} />
-                  <span>สมาชิกออนไลน์</span>
-                </button>
-
-                <button
                   id="nav-officer-backend"
                   type="button"
                   onClick={() => handleNavClick('backend_settings')}
                   className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs xl:text-sm font-bold transition-colors ${
-                    currentTab === 'backend_settings'
+                    currentTab === 'backend_settings' || currentTab === 'dashboard'
                       ? 'bg-emerald-800 text-white shadow-xs'
                       : 'text-slate-700 hover:text-emerald-900 hover:bg-emerald-50'
                   }`}
+                  title="ตั้งค่าหลังบ้าน สถิติ และจัดการรูปภาพ"
                 >
                   <Settings size={16} />
                   <span>ตั้งค่าหลังบ้าน</span>
@@ -277,7 +300,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           </nav>
 
           {/* Action Buttons & Profile Controls */}
-          <div className="hidden lg:flex items-center gap-2.5">
+          <div className="hidden lg:flex items-center gap-2">
             {/* Notification Bell with Badge */}
             <NotificationCenter
               notifications={notifications}
@@ -286,18 +309,48 @@ export const Navbar: React.FC<NavbarProps> = ({
               onSimulateStatusChange={onSimulateStatusChange}
             />
 
-            {/* Quick Report CTA for citizen */}
-            {!isOfficer && (
-              <button
-                id="btn-quick-report"
-                type="button"
-                onClick={() => handleNavClick('report')}
-                className="flex items-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-emerald-800 to-teal-700 hover:from-emerald-900 hover:to-teal-800 text-white font-semibold text-xs rounded-xl shadow-xs hover:shadow-md transition-all active:scale-95 cursor-pointer"
-              >
-                <PlusCircle size={15} />
-                <span>แจ้งปัญหาใหม่</span>
-              </button>
+            {/* View Switcher for Officer / Admin: Toggle between Citizen View and Officer Desk */}
+            {isOfficer && (
+              currentTab === 'officer' || currentTab === 'backend_settings' || currentTab === 'dashboard' ? (
+                <button
+                  id="btn-nav-switch-to-citizen"
+                  type="button"
+                  onClick={() => handleNavClick('home')}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-300 rounded-xl text-xs font-bold transition-all shadow-2xs hover:shadow-xs cursor-pointer active:scale-95"
+                  title="สลับไปดูหน้าเว็บทั่วไปของประชาชน (หน้าหลัก / แจ้งปัญหา / ติดตามผล)"
+                >
+                  <Eye size={14} className="text-teal-700" />
+                  <span>ดูหน้าประชาชน</span>
+                </button>
+              ) : (
+                <button
+                  id="btn-nav-switch-to-admin"
+                  type="button"
+                  onClick={() => handleNavClick('officer')}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer active:scale-95 animate-pulse"
+                  title="กลับสู่โต๊ะทำงานเจ้าหน้าที่และแอดมิน"
+                >
+                  <LayoutDashboard size={14} />
+                  <span>กลับระบบแอดมิน</span>
+                </button>
+              )
             )}
+
+            {/* Quick Report CTA (available for citizen, and for admin to test/view reporting flow) */}
+            <button
+              id="btn-quick-report"
+              type="button"
+              onClick={() => handleNavClick('report')}
+              className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-xl transition-all active:scale-95 cursor-pointer shadow-xs ${
+                currentTab === 'report'
+                  ? 'bg-emerald-900 text-white ring-2 ring-emerald-400'
+                  : 'bg-gradient-to-r from-emerald-800 to-teal-700 hover:from-emerald-900 hover:to-teal-800 text-white hover:shadow-md'
+              }`}
+              title="แจ้งปัญหาใหม่ (แบบฟอร์มประชาชน)"
+            >
+              <PlusCircle size={15} />
+              <span>แจ้งปัญหาใหม่</span>
+            </button>
 
             {/* Cloud Database Schema & SQL Export (Staff Only) */}
             {isOfficer && (
@@ -565,78 +618,168 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </button>
               </>
             ) : (
-              /* Officer Mobile Menu */
+              /* Officer Mobile Menu with Citizen Portal & Admin Desk */
               <>
-                <button
-                  type="button"
-                  onClick={() => handleNavClick('officer')}
-                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-bold ${
-                    currentTab === 'officer'
-                      ? 'bg-amber-50 text-amber-900 border border-amber-300'
-                      : 'text-slate-700 hover:bg-slate-50'
-                  }`}
-                >
-                  <div className="flex items-center gap-3">
-                    <LayoutDashboard size={18} className="text-amber-700" />
-                    <span>1. Dashboard เจ้าหน้าที่</span>
+                {/* Switcher card */}
+                <div className="p-3 bg-gradient-to-r from-teal-950 via-slate-900 to-teal-950 text-white rounded-2xl flex items-center justify-between shadow-xs mb-2">
+                  <div className="flex items-center gap-2">
+                    <Eye size={16} className="text-emerald-400 shrink-0" />
+                    <div>
+                      <p className="text-xs font-bold">สลับมุมมองหน้าจอ</p>
+                      <p className="text-[10px] text-slate-300">
+                        {currentTab === 'officer' || currentTab === 'backend_settings' || currentTab === 'dashboard'
+                          ? 'กำลังอยู่ในระบบแอดมิน'
+                          : 'กำลังดูหน้าจอประชาชน'}
+                      </p>
+                    </div>
                   </div>
-                  {pendingCount > 0 && (
-                    <span className="px-2 py-0.5 text-xs bg-amber-600 text-white rounded-full font-bold">
-                      {pendingCount} รอตรวจ
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleNavClick(
+                        currentTab === 'officer' || currentTab === 'backend_settings' || currentTab === 'dashboard'
+                          ? 'home'
+                          : 'officer'
+                      )
+                    }
+                    className="px-2.5 py-1.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-xs rounded-xl transition-transform active:scale-95 shadow-xs"
+                  >
+                    {currentTab === 'officer' || currentTab === 'backend_settings' || currentTab === 'dashboard'
+                      ? '👁️ ดูหน้าประชาชน'
+                      : '🛡️ กลับแดชบอร์ด'}
+                  </button>
+                </div>
+
+                {/* Section 1: Citizen Pages */}
+                <div className="pt-1">
+                  <div className="px-3 py-1 text-[11px] font-bold text-teal-800 uppercase tracking-wider flex items-center gap-1.5">
+                    <Home size={13} />
+                    <span>เมนูทั่วไปของประชาชน</span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleNavClick('home')}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium ${
+                      currentTab === 'home' ? 'bg-emerald-50 text-emerald-800 font-bold' : 'text-slate-700'
+                    }`}
+                  >
+                    <Home size={18} />
+                    <span>1. หน้าหลักประชาชน</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleNavClick('report')}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium ${
+                      currentTab === 'report' ? 'bg-emerald-50 text-emerald-800 font-bold' : 'text-slate-700'
+                    }`}
+                  >
+                    <PlusCircle size={18} />
+                    <span>2. แจ้งปัญหาใหม่</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleNavClick('track')}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium ${
+                      currentTab === 'track' ? 'bg-emerald-50 text-emerald-800 font-bold' : 'text-slate-700'
+                    }`}
+                  >
+                    <Search size={18} />
+                    <span>3. ติดตามปัญหา</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleNavClick('my_history')}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium ${
+                      currentTab === 'my_history' ? 'bg-emerald-50 text-emerald-800 font-bold' : 'text-slate-700'
+                    }`}
+                  >
+                    <History size={18} />
+                    <span>4. ประวัติคำร้อง</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleNavClick('map')}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium ${
+                      currentTab === 'map' ? 'bg-emerald-50 text-emerald-800 font-bold' : 'text-slate-700'
+                    }`}
+                  >
+                    <MapPin size={18} />
+                    <span>5. แผนที่ปัญหาชุมชน</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleNavClick('hotlines')}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium ${
+                      currentTab === 'hotlines' ? 'bg-emerald-50 text-emerald-800 font-bold' : 'text-slate-700'
+                    }`}
+                  >
+                    <PhoneCall size={18} />
+                    <span>6. หน่วยงานและสายด่วน</span>
+                  </button>
+                </div>
+
+                {/* Section 2: Officer & Admin Console */}
+                <div className="pt-2 border-t border-slate-200 mt-2">
+                  <div className="px-3 py-1 text-[11px] font-bold text-amber-800 uppercase tracking-wider flex items-center gap-1.5">
+                    <ShieldCheck size={13} />
+                    <span>ระบบจัดการเจ้าหน้าที่และแอดมิน</span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleNavClick('officer')}
+                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-bold ${
+                      currentTab === 'officer'
+                        ? 'bg-amber-50 text-amber-900 border border-amber-300'
+                        : 'text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <LayoutDashboard size={18} className="text-amber-700" />
+                      <span>Dashboard เจ้าหน้าที่</span>
+                    </div>
+                    {pendingCount > 0 && (
+                      <span className="px-2 py-0.5 text-xs bg-amber-600 text-white rounded-full font-bold">
+                        {pendingCount} รอตรวจ
+                      </span>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleNavClick('backend_settings')}
+                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-bold ${
+                      currentTab === 'backend_settings' || currentTab === 'dashboard'
+                        ? 'bg-emerald-800 text-white'
+                        : 'bg-emerald-50 text-emerald-900 border border-emerald-200'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <Settings size={18} />
+                      <span>ตั้งค่าหลังบ้าน (Dashboard & Member)</span>
+                    </div>
+                    <span className="text-[10px] bg-amber-400 text-slate-950 px-2 py-0.5 rounded-full font-bold">
+                      Admin
                     </span>
-                  )}
-                </button>
+                  </button>
 
-                <button
-                  type="button"
-                  onClick={() => handleNavClick('map')}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium ${
-                    currentTab === 'map' ? 'bg-emerald-50 text-emerald-800 font-bold' : 'text-slate-700'
-                  }`}
-                >
-                  <MapPin size={18} />
-                  <span>2. แผนที่ปัญหาชุมชน</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleNavClick('hotlines')}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium ${
-                    currentTab === 'hotlines' ? 'bg-emerald-50 text-emerald-800 font-bold' : 'text-slate-700'
-                  }`}
-                >
-                  <PhoneCall size={18} />
-                  <span>3. หน่วยงานและสายด่วน</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleNavClick('online_members')}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium ${
-                    currentTab === 'online_members' ? 'bg-emerald-50 text-emerald-800 font-bold' : 'text-slate-700'
-                  }`}
-                >
-                  <Users size={18} />
-                  <span>4. สมาชิกออนไลน์</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleNavClick('backend_settings')}
-                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-bold ${
-                    currentTab === 'backend_settings'
-                      ? 'bg-emerald-800 text-white'
-                      : 'bg-emerald-50 text-emerald-900 border border-emerald-200'
-                  }`}
-                >
-                  <div className="flex items-center gap-3">
-                    <Settings size={18} />
-                    <span>5. ตั้งค่าหลังบ้าน (Dashboard & Member)</span>
-                  </div>
-                  <span className="text-[10px] bg-amber-400 text-slate-950 px-2 py-0.5 rounded-full font-bold">
-                    Admin
-                  </span>
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => handleNavClick('online_members')}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium ${
+                      currentTab === 'online_members' ? 'bg-emerald-50 text-emerald-800 font-bold' : 'text-slate-700'
+                    }`}
+                  >
+                    <Users size={18} />
+                    <span>สมาชิกออนไลน์</span>
+                  </button>
+                </div>
               </>
             )}
 

@@ -58,6 +58,9 @@ export interface Issue {
   reporterEmail?: string;
   imageUrl: string;
   afterImageUrl?: string;
+  additionalImages?: string[];
+  imageCaption?: string;
+  afterImageCaption?: string;
   officerNotes?: string;
   assignedDepartment?: string;
   assignedOfficer?: string;
@@ -103,6 +106,8 @@ export interface CategoryMeta {
   badgeBg: string;
   badgeText: string;
   description: string;
+  realPhotoUrl: string;
+  photoExamples?: { url: string; title: string; description?: string }[];
 }
 
 export interface StatusMeta {
